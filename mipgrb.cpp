@@ -162,7 +162,7 @@ int main()
             linexpr.clear();
         }
 
-        int uv, uw, vw, uvw, wuv;
+        int uv, uw, vw, uvw, wuv, wu, wv;
         for(int u = 0; u < n; ++u)
         {
             for(int v = 0; v < n; ++v)
@@ -175,16 +175,18 @@ int main()
                     vw = get(v, w);
                     uvw = get(u, v, w);
                     wuv = get(w, u, v);
+                    wu = get(w, u);
+                    wv = get(w, v);
                     model.addConstr(y[uv] + y[vw] <= 1 + y[uw], getNewConstr());    //(15)
-                    model.addConstr(2*z[uvw] <= y[uv] + y[uw], getNewConstr());     //(16)
-                    model.addConstr(z[uvw]+1 >= y[uv] + y[uw], getNewConstr());     //(17)
+                    model.addConstr(2*z[wuv] <= y[wu] + y[wv], getNewConstr());     //(16)
+                    model.addConstr(z[wuv]+1 >= y[wu] + y[wv], getNewConstr());     //(17)
                     for(int& eid : Nmin[w])
                     {
                         linexpr.addTerms(&mEdges[eid].len, &x[eid], 1);
                         linexpr2.addTerms(&mEdges[eid].len, &z[wuv], 1);
                     }
-                    model.addConstr(rho[uvw] <= linexpr, getNewConstr());           //(18)
-                    model.addConstr(rho[uvw] <= linexpr2, getNewConstr());          //(18)
+                    model.addConstr(rho[wuv] <= linexpr, getNewConstr());           //(18)
+                    model.addConstr(rho[wuv] <= linexpr2, getNewConstr());          //(18)
                     linexpr.clear();
                     linexpr2.clear();
                 }
@@ -194,13 +196,13 @@ int main()
         // Optimize model
         model.optimize();
 
-        for(int i = 0; i < m; ++i)
+        /*for(int i = 0; i < m; ++i)
         {
             cout << x[i].get(GRB_StringAttr_VarName) << " "
                 << x[i].get(GRB_DoubleAttr_X) << '\n';
         }
 
-        cout << "Obj: " << model.get(GRB_DoubleAttr_ObjVal) << '\n';
+        cout << "Obj: " << model.get(GRB_DoubleAttr_ObjVal) << '\n';*/
 
 
     }
