@@ -11,7 +11,7 @@ all: evolutionary.cpp mipgrb.cpp
 evo: evolutionary.cpp
 	g++ $(FLAGS) evolutionary.cpp -o evolutionary $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
 
-mip: mipgrb.cpp
+grb: mipgrb.cpp
 	g++ $(FLAGS) mipgrb.cpp -o mipgrb $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
 
 clean:
