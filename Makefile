@@ -1,7 +1,18 @@
 
 DIR=opt/gurobi911/linux64
+FLAGS=-std=c++11 -O2 -Wall -Wextra
+INCLUDE=-I/$(DIR)/include/
+LIBRARY=-L/$(DIR)/lib/
 
-all: evoalgorithm.cpp
-	g++ -std=c++11 -O2 evoalgorithm.cpp -o evoalgorithm -I/$(DIR)/include/ -L/$(DIR)/lib/ -lgurobi_c++ -lgurobi91
-clean: evoalgorithm
-	rm evoalgorithm
+all: evolutionary.cpp mipgrb.cpp
+	g++ $(FLAGS) evolutionary.cpp -o evolutionary $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
+	g++ $(FLAGS) mipgrb.cpp -o mipgrb $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
+
+evo: evolutionary.cpp
+	g++ $(FLAGS) evolutionary.cpp -o evolutionary $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
+
+mip: mipgrb.cpp
+	g++ $(FLAGS) mipgrb.cpp -o mipgrb $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
+
+clean:
+	rm evolutionary mipgrb

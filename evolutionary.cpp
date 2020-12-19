@@ -163,7 +163,7 @@ struct Evolutionary
     void genInitialPop(int popSize)
     {
         vector<Edge> cpy = edges;
-        int minObj, maxObj, numForests, idx;
+        int minObj, maxObj, numForests;
         minObj = INT_MAX;
         maxObj = INT_MIN;
         for(int i = 0; i < popSize; ++i)
