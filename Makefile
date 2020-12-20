@@ -4,11 +4,7 @@ FLAGS=-std=c++11 -O2 -Wall -Wextra
 INCLUDE=-I/$(DIR)/include/
 LIBRARY=-L/$(DIR)/lib/
 
-all: evolutionary.cpp mipgrb.cpp
-	g++ $(FLAGS) evolutionary.cpp -o evolutionary $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
-	g++ $(FLAGS) mipgrb.cpp -o mipgrb $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
-
-evo: evolutionary.cpp
+all: evolutionary.cpp
 	g++ $(FLAGS) evolutionary.cpp -o evolutionary $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
 
 grb: mipgrb.cpp

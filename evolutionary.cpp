@@ -28,8 +28,8 @@ vector<Edge> edges; // edges given
 vector<vector<double>> req; // requirement values
 
 // seed used to generate random numbers
-unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-//unsigned seed = 369140336;
+//unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+unsigned seed = 24438823;
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -69,6 +69,7 @@ inline int getNeighbor(int u, Edge& e)
     return (e.u == u ? e.v : e.u);
 }
 
+// IMPORTANT: Assertions should be removed when testing
 
 // Stores candidate solution (tree)
 struct Solution
@@ -77,15 +78,15 @@ struct Solution
     vector<vector<double>> dist;
     vb usedEdge;
     double objective;
-    float fitness;
+    
     Solution()
     {
         adj.resize(n, vector<AdjInfo>());
         dist.resize(n, vector<double>(n));
         usedEdge.resize(m, false);
         objective = 0;
-        fitness = 0.0;
     }
+    
     /* Input: Adjacency list of the tree
 	   Output: Objective function value */
     void computeObjectiveFun()
@@ -437,7 +438,6 @@ void print(Solution& s)
     }
     putchar('\n');
     printf("Objective value = %.2f\n", s.objective);
-    printf("Fitness value = %f\n", s.fitness);
     putchar('\n');
 }
 void print(vb& usedEdges)
@@ -451,9 +451,6 @@ void print(vb& usedEdges)
     }
 }
 
-
-// IMPORTANT: Assertions should be removed when testing
-
 // Variable used for Gurobi solver
 vector<vector<double>> reqMin2;
 vector<vector<vector<int>>> getIdx;
@@ -465,19 +462,21 @@ string getNewConstr()
     return "C" + to_string(constrCnt++);
 }
 
-Solution gurobiSolver(int n, vector<Edge>& avEdges, vb& fixedEdge)
+Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
 {
     assert((int) avEdges.size() == (int) fixedEdge.size());
     Solution sol;
     vector<vector<int>> Nmin;
     vector<Edge> mEdges;
     double d = 0;
-    m = 2*(int) avEdges.size();
+    int m = 2*(int) avEdges.size();
     mEdges.resize(m);
     Nmin.resize(n, vector<int>());
     int cnt = 0;
     for(Edge& e : avEdges)
     {
+        print(e);
+        printf("Fixed = %d\n", fixedEdge[cnt/2] ? 1 : 0);
         mEdges[cnt] = {e.u, e.v, e.len, cnt};
         mEdges[cnt+1] = {e.v, e.u, e.len, cnt+1};
         Nmin[e.v].push_back(cnt);
@@ -490,7 +489,9 @@ Solution gurobiSolver(int n, vector<Edge>& avEdges, vb& fixedEdge)
          // Create an environment
         GRBEnv env = GRBEnv(true);
         //env.set("LogFile", "mip.log");
+        env.set("OutputFlag", "0");
         env.start();
+        
 
         // Create an empty model
         GRBModel model = GRBModel(env);
@@ -585,7 +586,6 @@ Solution gurobiSolver(int n, vector<Edge>& avEdges, vb& fixedEdge)
             }
             cnt++;
         }
-
         for(int v = 0; v < n; ++v)
         {
             model.addConstr(y[getIdx[0][v][v]] == 1, getNewConstr());   //(13)
@@ -596,7 +596,6 @@ Solution gurobiSolver(int n, vector<Edge>& avEdges, vb& fixedEdge)
             model.addConstr(linexpr == eta[v]+1);               //(12)
             linexpr.clear();
         }
-
         int uv, uw, vw, wuv, wu, wv;
         for(int u = 0; u < n; ++u)
         {
@@ -626,12 +625,11 @@ Solution gurobiSolver(int n, vector<Edge>& avEdges, vb& fixedEdge)
                 }
             }
         }
-
         // Optimize model
         model.optimize();
-
         // Set new solution to return
         int idx = 0;
+        return sol;
         for(int i = 0; i < m; i += 2)
         {
             if(x[i].get(GRB_DoubleAttr_X) > 0.99 || x[i+1].get(GRB_DoubleAttr_X) > 0.99)
@@ -642,10 +640,7 @@ Solution gurobiSolver(int n, vector<Edge>& avEdges, vb& fixedEdge)
             }
             idx++;
         }
-
-        cout << "Obj: " << model.get(GRB_DoubleAttr_ObjVal) << '\n';
-
-        
+        model.reset();    
 
     }
     catch(GRBException e) 
@@ -661,17 +656,155 @@ Solution gurobiSolver(int n, vector<Edge>& avEdges, vb& fixedEdge)
     return sol;
 }
 
+bool inline leq(double a, double b)
+{
+    return a < b || abs(a-b) < EPS;
+}
+
 // evolutionary/genetic algorithm
 struct Evolutionary
 {
     vector<Solution> solutions;
-    Evolutionary(int popSize)
+    vector<int> parents;
+    vector<double> fitness;
+    int popSize, numPar;
+    Evolutionary(int popSize, int numPar)
     {
         solutions.resize(popSize);
+        parents.resize(numPar);
+        fitness.resize(popSize);
+        this->popSize = popSize;
+        this->numPar = numPar;
+    }
+
+    Solution run()
+    {
         genInitialPop(popSize);
-        solutions[0].mutateInserting();
-        solutions[0].mutateRemoving();
-        print(solutions[0]);
+        int gen = 1;
+        double maxObj, minObj;
+        Solution best;
+        best.objective = DBL_MAX;
+        double fitSum;
+        double rngDbl;
+        double accVal;
+        int rngInt;
+
+        //Mersenne Twister: Good quality random number generator
+        std::mt19937 rng; 
+        //Initialize with non-deterministic seeds
+        rng.seed(seed); 
+
+        while(gen <= 5)
+        {
+            minObj = DBL_MAX;
+            maxObj = 0;
+            // Evaluate solutions
+            for(Solution& sol : solutions)
+            {
+                sol.computeObjectiveFun();
+                minObj = min(minObj, sol.objective);
+                maxObj = max(maxObj, sol.objective);
+                if(sol.objective < best.objective)      // update if solution is better
+                {
+                    best = sol;
+                }
+            }
+            // Evaluate fitness ([0, 1] interval, greater is better)
+            fitSum = 0;
+            for(int i = 0; i < popSize; ++i)
+            {
+                if(abs(minObj - maxObj) < EPS)
+                    fitness[i] = 1.0;
+                else
+                    fitness[i] = 1.0 - (solutions[i].objective - minObj)/(maxObj - minObj);
+                fitSum += fitness[i];
+            }
+            // selecting numPar parents
+            // Never select worst solution found? (fitness = 0)
+            std::uniform_real_distribution<double> distrib(0.0, fitSum);
+            for(int i = 0; i < numPar; ++i)
+            {
+                rngDbl = distrib(rng);
+                accVal = 0.0;
+                for(int j = 0; j < popSize; ++j)
+                {
+                    if(leq(rngDbl, accVal + fitness[j]))    // solution chosen
+                    {
+                        parents[i] = j;
+                        break;
+                    }
+                    accVal += fitness[j];
+                }
+            }
+            // Crossover between parents
+            vector<Solution> offspring;
+            for(int i = 0; i < numPar; ++i)
+                for(int j = i+1; j < numPar; ++j)
+                    offspring.push_back(crossover(solutions[parents[i]], solutions[parents[j]]));
+                    //offspring.push_back(solutions[parents[i]]);
+            return best;
+            for(Solution& sol : offspring)
+            {
+                rngInt = rand()%2;
+                if(rngInt)
+                {
+                    sol.mutateInserting();
+                }
+                else
+                {
+                    sol.mutateRemoving();
+                }
+                if(sol.objective < best.objective)      // update if solution is better
+                {
+                    best = sol;
+                }
+            }
+
+            gen++;
+        }
+        return best;
+    }
+
+    Solution crossover(Solution& s1, Solution& s2)
+    {
+        printf("Crossovering solutions...\n");
+        print(s1);
+        print(s2);
+        bool equal = true;
+        vector<Edge> avEdges;
+        vb fixedEdge;
+        int nFixedEdges = 0;
+        for(int i = 0; i < m; ++i)
+        {
+            if((!s1.usedEdge[i]) && (!s2.usedEdge[i]))
+                continue;
+            // Edge used in at least one tree
+            avEdges.push_back(edges[i]);
+            if(s1.usedEdge[i] && s2.usedEdge[i])
+            {
+                fixedEdge.push_back(true);
+                nFixedEdges++;
+            }
+            else
+            {
+                equal = false;
+                fixedEdge.push_back(false);
+            }         
+        }
+        Solution sol;
+        if(equal)
+        {
+            sol = s1;
+        }
+        else
+        {
+            chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+            sol = gurobiSolver(avEdges, fixedEdge);
+            chrono::steady_clock::time_point end = chrono::steady_clock::now();
+            //std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
+            sol.computeObjectiveFun();
+        }
+        return sol;
     }
 
     /* Generate popSize initial solutions (trees) by shuffling the edges
@@ -679,10 +812,7 @@ struct Evolutionary
     void genInitialPop(int popSize)
     {
         vector<Edge> cpy = edges;
-        double minObj, maxObj;
         int numForests;
-        minObj = DBL_MAX;
-        maxObj = 0;
         for(int i = 0; i < popSize; ++i)
         {
             shuffle(begin(cpy), end(cpy), default_random_engine(seed));
@@ -701,20 +831,10 @@ struct Evolutionary
                 }
                 if(numForests == 1) // If the tree is done
                 {
-                    sol.computeObjectiveFun();
-                    minObj = min(minObj, sol.objective);
-                    maxObj = max(maxObj, sol.objective);
                     break;
                 }
             }
             solutions[i] = sol;
-        }
-        for(int i = 0; i < popSize; ++i)
-        {
-            if(abs(minObj - maxObj) < EPS)
-                solutions[i].fitness = 1.0;
-            else
-                solutions[i].fitness = 1.0 - (solutions[i].objective - minObj)/(maxObj - minObj);
         }
     }
 };
@@ -739,12 +859,14 @@ printf("seed = %u\n", seed);
             req[j][i] = req[i][j];
         }
     }
-    vb fixedEdge(m, false);
-    fixedEdge[0] = true;
-    Solution s = gurobiSolver(n, edges, fixedEdge);
+    /*vb fixedEdge(m, false);
+    fixedEdge[0] = fixedEdge[3] = true;
+    Solution s = gurobiSolver(edges, fixedEdge);
     s.computeObjectiveFun();
     print(s);
-    return 0;
-    Evolutionary ev(5);
+    return 0;*/
+    Evolutionary ev(5, 3);
+    Solution best = ev.run();
+    print(best);
     return 0;
 }
