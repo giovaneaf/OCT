@@ -11,34 +11,30 @@ struct Edge
     Edge(int u = 0, int v = 0, double len = 0.0, int id = 0) : u(u), v(v), len(len), id(id) {}
 };
 
-vector<Edge> mEdges;
 vector<vector<double>> req;
-vector<vector<int>> Nmin;
 
 // Vectors used for gurobi
 vector<vector<double>> reqMin2;
+vector<vector<int>> Nmin;
+vector<vector<vector<int>>> getIdx;
+vector<Edge> mEdges;
 
 string getNewConstr()
 {
-    static int cnt = 0;
-    return "C" + to_string(cnt++);
+    static int constrCnt = 0;
+    return "C" + to_string(constrCnt++);
 }
+inline void print(Edge& e)
+{
+    printf("(%d, %d, %.2f, %d)\n", e.u, e.v, e.len, e.id);
+}
+
 
 int n, m;
 
-inline int get(int u, int v)
-{
-    return u*n+v;
-}
-inline int get(int u, int v, int w)
-{
-    return u*n*n+v*n+w;
-}
-
-
 int main()
 {
-    int d = 0;
+    double d = 0;
     cin >> n >> m;
     m *= 2;
     mEdges.resize(m);
@@ -75,8 +71,8 @@ int main()
 
         if(computeValues)
         {
-            reqMin2.resize(n, vector<double>(n));
             // Computed needed values for formulation
+            reqMin2.resize(n, vector<double>(n));
             for(int u = 0; u < n; ++u)
             {
                 for(int v = u+1; v < n; ++v)
@@ -84,6 +80,13 @@ int main()
                     reqMin2[u][v] = -2*req[u][v];
                 }
             }
+            getIdx.resize(n, vector<vector<int>>(n, vector<int>(n)));
+            int cnt = 0;
+            for(int u = 0; u < n; ++u)
+                for(int v = 0; v < n; ++v)
+                    for(int w = 0; w < n; ++w)
+                        getIdx[u][v][w] = cnt++;
+            // Don't need to be computed anymore
             computeValues = false;
         }
 
@@ -108,7 +111,7 @@ int main()
                 obj.addTerms(&req[u][v], &delta[v], 1);
                 for(int w = 0; w < n; ++w)
                 {
-                    obj.addTerms(&reqMin2[u][v], &rho[get(w,u,v)], 1);
+                    obj.addTerms(&reqMin2[u][v], &rho[getIdx[w][u][v]], 1);
                 }
             }
         }
@@ -148,35 +151,34 @@ int main()
             model.addConstr(delta[e.v] <= delta[e.u] + x[e.id]*e.len + (1 - x[e.id])*d, getNewConstr());    // (07)
             model.addConstr(eta[e.v] >= eta[e.u] + x[e.id] - (1 - x[e.id])*n, getNewConstr());              // (10)
             model.addConstr(eta[e.v] <= eta[e.u] + x[e.id] + (1 - x[e.id])*n, getNewConstr());              // (11)
-            model.addConstr(y[get(e.u, e.v)] >= x[e.id], getNewConstr());                                     // (14)
+            model.addConstr(y[getIdx[0][e.u][e.v]] >= x[e.id], getNewConstr());                                     // (14)
         }
 
         for(int v = 0; v < n; ++v)
         {
-            model.addConstr(y[get(v, v)] == 1, getNewConstr());   //(13)
+            model.addConstr(y[getIdx[0][v][v]] == 1, getNewConstr());   //(13)
             for(int u = 0; u < n; ++u)
             {
-                linexpr.addTerms(&one, &y[get(u, v)], 1);
+                linexpr.addTerms(&one, &y[getIdx[0][u][v]], 1);
             }
             model.addConstr(linexpr == eta[v]+1);               //(12)
             linexpr.clear();
         }
 
-        int uv, uw, vw, uvw, wuv, wu, wv;
+        int uv, uw, vw, wuv, wu, wv;
         for(int u = 0; u < n; ++u)
         {
             for(int v = 0; v < n; ++v)
             {
                 if(u == v) continue;
-                uv = get(u, v);
+                uv = getIdx[0][u][v];
                 for(int w = 0; w < n; ++w)
                 {
-                    uw = get(u, w);
-                    vw = get(v, w);
-                    uvw = get(u, v, w);
-                    wuv = get(w, u, v);
-                    wu = get(w, u);
-                    wv = get(w, v);
+                    uw = getIdx[0][u][w];
+                    vw = getIdx[0][v][w];
+                    wuv = getIdx[w][u][v];
+                    wu = getIdx[0][w][u];
+                    wv = getIdx[0][w][v];
                     model.addConstr(y[uv] + y[vw] <= 1 + y[uw], getNewConstr());    //(15)
                     model.addConstr(2*z[wuv] <= y[wu] + y[wv], getNewConstr());     //(16)
                     model.addConstr(z[wuv]+1 >= y[wu] + y[wv], getNewConstr());     //(17)
@@ -200,9 +202,9 @@ int main()
         {
             cout << x[i].get(GRB_StringAttr_VarName) << " "
                 << x[i].get(GRB_DoubleAttr_X) << '\n';
-        }
+        }*/
 
-        cout << "Obj: " << model.get(GRB_DoubleAttr_ObjVal) << '\n';*/
+        cout << "Obj: " << model.get(GRB_DoubleAttr_ObjVal) << '\n';
 
 
     }
