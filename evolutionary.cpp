@@ -454,8 +454,9 @@ void print(vb& usedEdges)
 // Variable used for Gurobi solver
 vector<vector<double>> reqMin2;
 vector<vector<vector<int>>> getIdx;
-static bool computeValues = true;
+static bool setupGurobi = true;
 static int constrCnt = 0;
+GRBEnv env = GRBEnv(true);
 
 string getNewConstr()
 {
@@ -475,8 +476,6 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
     int cnt = 0;
     for(Edge& e : avEdges)
     {
-        print(e);
-        printf("Fixed = %d\n", fixedEdge[cnt/2] ? 1 : 0);
         mEdges[cnt] = {e.u, e.v, e.len, cnt};
         mEdges[cnt+1] = {e.v, e.u, e.len, cnt+1};
         Nmin[e.v].push_back(cnt);
@@ -485,19 +484,12 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
         cnt += 2;
     }
     try 
-    {
-         // Create an environment
-        GRBEnv env = GRBEnv(true);
-        //env.set("LogFile", "mip.log");
-        env.set("OutputFlag", "0");
-        env.start();
-        
+    {       
 
-        // Create an empty model
-        GRBModel model = GRBModel(env);
-
-        if(computeValues)
+        if(setupGurobi)
         {
+            env.set("OutputFlag", "0");
+            env.start();
             // Computed needed values for formulation
             reqMin2.resize(n, vector<double>(n));
             for(int u = 0; u < n; ++u)
@@ -514,8 +506,11 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
                     for(int w = 0; w < n; ++w)
                         getIdx[u][v][w] = cnt++;
             // Don't need to be computed anymore
-            computeValues = false;
+            setupGurobi = false;
         }
+
+        // Create an empty model
+        GRBModel model = GRBModel(env);
 
         // Create binary variables
         GRBVar* x = model.addVars(m, GRB_BINARY);
@@ -526,8 +521,6 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
         GRBVar* delta = model.addVars(n, GRB_INTEGER);
         GRBVar* eta = model.addVars(n, GRB_INTEGER);
         GRBVar* rho = model.addVars(n*n*n, GRB_INTEGER);
-
-        
 
         GRBLinExpr obj;
         for(int u = 0; u < n; ++u)
@@ -542,9 +535,7 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
                 }
             }
         }
-
         model.setObjective(obj, GRB_MINIMIZE);              // (01)
-
         GRBLinExpr linexpr, linexpr2;
 
         int root = 0;
@@ -553,11 +544,9 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
         {
             linexpr.addTerms(&one, &x[inEdge], 1);
         }
-
         model.addConstr(linexpr == 0, getNewConstr());      // (02)
         model.addConstr(delta[root] == 0, getNewConstr());  // (04)
         model.addConstr(eta[root] == 0, getNewConstr());    // (08)
-
         linexpr.clear();
 
         for(int u = 1; u < n; ++u)
@@ -571,20 +560,21 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
             model.addConstr(eta[u] >= 0, getNewConstr());   // (09)
             linexpr.clear();
         }
-        cnt = 0;
         for(Edge& e : mEdges)
-        {           
+        {
             model.addConstr(delta[e.v] >= delta[e.u] + x[e.id]*e.len - (1 - x[e.id])*d, getNewConstr());            // (06)
             model.addConstr(delta[e.v] <= delta[e.u] + x[e.id]*e.len + (1 - x[e.id])*d, getNewConstr());            // (07)
             model.addConstr(eta[e.v] >= eta[e.u] + x[e.id] - (1 - x[e.id])*n, getNewConstr());                      // (10)
             model.addConstr(eta[e.v] <= eta[e.u] + x[e.id] + (1 - x[e.id])*n, getNewConstr());                      // (11)
             model.addConstr(y[getIdx[0][e.u][e.v]] >= x[e.id], getNewConstr());                                     // (14)
+        }
+        for(int i = 0; i < m/2; ++i)
+        {
             // Constraint to ensure the fixed edges are in solution
-            if(fixedEdge[cnt])
+            if(fixedEdge[i])
             {
-                model.addConstr(x[2*cnt]+x[2*cnt+1] == 1, getNewConstr());
+                model.addConstr(x[2*i]+x[2*i+1] == 1, getNewConstr());
             }
-            cnt++;
         }
         for(int v = 0; v < n; ++v)
         {
@@ -629,7 +619,6 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
         model.optimize();
         // Set new solution to return
         int idx = 0;
-        return sol;
         for(int i = 0; i < m; i += 2)
         {
             if(x[i].get(GRB_DoubleAttr_X) > 0.99 || x[i+1].get(GRB_DoubleAttr_X) > 0.99)
@@ -640,8 +629,6 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
             }
             idx++;
         }
-        model.reset();    
-
     }
     catch(GRBException e) 
     {
@@ -742,7 +729,6 @@ struct Evolutionary
                 for(int j = i+1; j < numPar; ++j)
                     offspring.push_back(crossover(solutions[parents[i]], solutions[parents[j]]));
                     //offspring.push_back(solutions[parents[i]]);
-            return best;
             for(Solution& sol : offspring)
             {
                 rngInt = rand()%2;
@@ -767,9 +753,6 @@ struct Evolutionary
 
     Solution crossover(Solution& s1, Solution& s2)
     {
-        printf("Crossovering solutions...\n");
-        print(s1);
-        print(s2);
         bool equal = true;
         vector<Edge> avEdges;
         vb fixedEdge;
@@ -801,7 +784,7 @@ struct Evolutionary
             chrono::steady_clock::time_point begin = chrono::steady_clock::now();
             sol = gurobiSolver(avEdges, fixedEdge);
             chrono::steady_clock::time_point end = chrono::steady_clock::now();
-            //std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
+            std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
             sol.computeObjectiveFun();
         }
         return sol;
