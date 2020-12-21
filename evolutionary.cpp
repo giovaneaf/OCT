@@ -5,6 +5,7 @@ using namespace std;
 
 #define vb vector<bool>
 #define vi vector<int>
+#define ii pair<int, int>
 #define EPS 1e-9
 
 struct Edge 
@@ -29,7 +30,7 @@ vector<vector<double>> req; // requirement values
 
 // seed used to generate random numbers
 //unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-unsigned seed = 24438823;
+unsigned seed = 1593498109;
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -654,19 +655,27 @@ struct Evolutionary
     vector<Solution> solutions;
     vector<int> parents;
     vector<double> fitness;
-    int popSize, numPar;
-    Evolutionary(int popSize, int numPar)
+    int popSize;                // initial population size
+    int numPar;                 // number of parents
+    int K;                      // tournament size
+    int numTour;                // number of tournaments per generation
+    int numGen;                 // number of generations
+    Evolutionary(int popSize, int numPar, int numGen)
     {
+        assert((numPar*(numPar-1))/2 >= popSize);
         solutions.resize(popSize);
         parents.resize(numPar);
         fitness.resize(popSize);
         this->popSize = popSize;
         this->numPar = numPar;
+        this->K = numPar;
+        this->numTour = numPar;
+        this->numGen = numGen;
     }
 
     Solution run()
     {
-        genInitialPop(popSize);
+        genRandomPop(popSize);
         int gen = 1;
         double maxObj, minObj;
         Solution best;
@@ -681,7 +690,7 @@ struct Evolutionary
         //Initialize with non-deterministic seeds
         rng.seed(seed); 
 
-        while(gen <= 5)
+        while(gen <= numGen)
         {
             minObj = DBL_MAX;
             maxObj = 0;
@@ -728,7 +737,6 @@ struct Evolutionary
             for(int i = 0; i < numPar; ++i)
                 for(int j = i+1; j < numPar; ++j)
                     offspring.push_back(crossover(solutions[parents[i]], solutions[parents[j]]));
-                    //offspring.push_back(solutions[parents[i]]);
             for(Solution& sol : offspring)
             {
                 rngInt = rand()%2;
@@ -745,7 +753,17 @@ struct Evolutionary
                     best = sol;
                 }
             }
-
+            vector<ii> wins((int) offspring.size());
+            for(int i = 0; i < (int) offspring.size(); ++i)
+            {
+                wins[i] = make_pair(0, i);
+            }
+            tournamentSelection(offspring, wins);
+            sort(wins.begin(), wins.end(), greater<ii>());
+            for(int i = 0; i < popSize; ++i)
+            {
+                solutions[i] = offspring[wins[i].second];
+            }
             gen++;
         }
         return best;
@@ -790,9 +808,37 @@ struct Evolutionary
         return sol;
     }
 
+    void tournamentSelection(vector<Solution>& offspring, vector<ii>& wins)
+    {
+        int i, rdInt;
+        int best;
+        vector<int> reservoir(this->K); 
+        for(int tour = 0; tour < this->numTour; tour++)
+        {
+            // Reservoir Algorithm to sample K random solutions
+            for(i = 0; i < K; ++i)
+                reservoir[i] = i;
+            for(; i < (int) wins.size(); ++i)
+            {
+                rdInt = rand()%(i+1);
+                if(rdInt < this->K)
+                {
+                    reservoir[rdInt] = i;
+                }
+            }
+            best = reservoir[0];
+            for(i = 1; i < K; ++i)
+            {
+                if(offspring[reservoir[i]].objective < offspring[best].objective)
+                    best = reservoir[i];
+            }
+            wins[best].first++;
+        }
+    }
+
     /* Generate popSize initial solutions (trees) by shuffling the edges
 	   and inserting the edges like Kruskal Algorithm */
-    void genInitialPop(int popSize)
+    void genRandomPop(int popSize)
     {
         vector<Edge> cpy = edges;
         int numForests;
@@ -822,8 +868,13 @@ struct Evolutionary
     }
 };
 
-int main()
+int main(int argc, char* argv[])
 {
+    if(argc != 4)
+    {
+        printf("usage: ./evolutionary popSize numParents numGen < inputFile\n");
+        return -1;
+    }
 printf("seed = %u\n", seed);
     srand(seed);
     cin >> n >> m;
@@ -842,13 +893,7 @@ printf("seed = %u\n", seed);
             req[j][i] = req[i][j];
         }
     }
-    /*vb fixedEdge(m, false);
-    fixedEdge[0] = fixedEdge[3] = true;
-    Solution s = gurobiSolver(edges, fixedEdge);
-    s.computeObjectiveFun();
-    print(s);
-    return 0;*/
-    Evolutionary ev(5, 3);
+    Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
     Solution best = ev.run();
     print(best);
     return 0;
