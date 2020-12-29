@@ -3,6 +3,7 @@
 
 using namespace std;
 
+#define mp(a, b) make_pair(a, b)
 #define vb vector<bool>
 #define vi vector<int>
 #define ii pair<int, int>
@@ -29,8 +30,8 @@ vector<Edge> edges; // edges given
 vector<vector<double>> req; // requirement values
 
 // seed used to generate random numbers
-//unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-unsigned seed = 1593498109;
+unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+//unsigned seed = 2696769300;
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -675,7 +676,11 @@ struct Evolutionary
 
     Solution run()
     {
-        genRandomPop(popSize);
+        genMinPathPop();
+        for(Solution& sol : solutions)
+        {
+            sol.computeObjectiveFun();
+        }
         int gen = 1;
         double maxObj, minObj;
         Solution best;
@@ -694,10 +699,9 @@ struct Evolutionary
         {
             minObj = DBL_MAX;
             maxObj = 0;
-            // Evaluate solutions
+            // find best solution
             for(Solution& sol : solutions)
             {
-                sol.computeObjectiveFun();
                 minObj = min(minObj, sol.objective);
                 maxObj = max(maxObj, sol.objective);
                 if(sol.objective < best.objective)      // update if solution is better
@@ -756,7 +760,7 @@ struct Evolutionary
             vector<ii> wins((int) offspring.size());
             for(int i = 0; i < (int) offspring.size(); ++i)
             {
-                wins[i] = make_pair(0, i);
+                wins[i] = mp(0, i);
             }
             tournamentSelection(offspring, wins);
             sort(wins.begin(), wins.end(), greater<ii>());
@@ -838,7 +842,7 @@ struct Evolutionary
 
     /* Generate popSize initial solutions (trees) by shuffling the edges
 	   and inserting the edges like Kruskal Algorithm */
-    void genRandomPop(int popSize)
+    void genRandomPop()
     {
         vector<Edge> cpy = edges;
         int numForests;
@@ -863,6 +867,71 @@ struct Evolutionary
                     break;
                 }
             }
+            solutions[i] = sol;
+        }
+    }
+
+    void genMinPathPop()
+    {
+        // generate adjacency list to perform Dijkstra
+        vector<AdjInfo> adj[n];
+        for(Edge& e : edges)
+        {
+            adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+        }
+        int i, rdInt, cur;
+        popSize = min(popSize, n);
+        vector<int> reservoir(popSize);
+        // Reservoir Algorithm to sample K random solutions
+        for(i = 0; i < popSize; ++i)
+            reservoir[i] = i;
+        for(; i < n; ++i)
+        {
+            rdInt = rand()%(i+1);
+            if(rdInt < popSize)
+            {
+                reservoir[rdInt] = i;
+            }
+        }
+        for(i = 0; i < popSize; ++i)
+        {
+            // perform Dijkstra in the node (reservoir[i])
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            cur = reservoir[i];
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                pq.pop();
+                for(AdjInfo& ainfo : adj[cur])
+                {
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
+                }
+            }
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    sol.usedEdge[edgeID] = true;
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                }
+            }
+            printf("node = %d\n", reservoir[i]);
+            print(sol);
             solutions[i] = sol;
         }
     }

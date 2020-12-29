@@ -11,4 +11,4 @@ grb: mipgrb.cpp
 	g++ $(FLAGS) mipgrb.cpp -o mipgrb $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
 
 clean:
-	rm evolutionary mipgrb
+	rm evolutionary
