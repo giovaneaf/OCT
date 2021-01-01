@@ -71,6 +71,11 @@ inline int getNeighbor(int u, Edge& e)
     return (e.u == u ? e.v : e.u);
 }
 
+bool eq(double a, double b)
+{
+    return abs(a-b) < EPS;
+}
+
 // IMPORTANT: Assertions should be removed when testing
 
 // Stores candidate solution (tree)
@@ -245,7 +250,7 @@ struct Solution
         this->removeEdge(edge);
         // call this to update the new distances correctly
         this->computeObjectiveFun();
-        assert(minObj == this->objective);
+        assert(eq(minObj, this->objective));
     }
 
     // Mutate when considering to remove a random edge - O(m*n^2)
@@ -337,7 +342,7 @@ struct Solution
                 ss.adj[edges[i].u].push_back(AdjInfo(edges[i].v, edges[i].len, edges[i].id));
                 ss.adj[edges[i].v].push_back(AdjInfo(edges[i].u, edges[i].len, edges[i].id));
                 ss.computeObjectiveFun();
-                assert(ss.objective == curObj);
+                assert(eq(ss.objective, curObj));
                 if(curObj < minObj)
                 {
                     minObj = curObj;
@@ -384,11 +389,11 @@ struct Solution
             }
         }
         // assertion to check if distances are correctly updated
-        int tmp = 0;
+        double tmp = 0;
         for(int i = 0; i < n; ++i)
             for(int j = i+1; j < n; ++j)
                 tmp += this->dist[i][j]*req[i][j];
-        assert(tmp == this->objective);
+        assert(eq(tmp, this->objective));
     }
 
     // Removes edge from the solution (doesn't recompute anything)
@@ -520,9 +525,11 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
         GRBVar* z = model.addVars(n*n*n, GRB_BINARY);
 
         // Create integer variables
-        GRBVar* delta = model.addVars(n, GRB_INTEGER);
         GRBVar* eta = model.addVars(n, GRB_INTEGER);
-        GRBVar* rho = model.addVars(n*n*n, GRB_INTEGER);
+
+        // Create continuous variables
+        GRBVar* delta = model.addVars(n, GRB_CONTINUOUS);
+        GRBVar* rho = model.addVars(n*n*n, GRB_CONTINUOUS);
 
         GRBLinExpr obj;
         for(int u = 0; u < n; ++u)
