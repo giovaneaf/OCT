@@ -75,6 +75,10 @@ bool eq(double a, double b)
 {
     return abs(a-b) < EPS;
 }
+bool inline leq(double a, double b)
+{
+    return a < b || abs(a-b) < EPS;
+}
 
 // IMPORTANT: Assertions should be removed when testing
 
@@ -470,7 +474,7 @@ string getNewConstr()
     return "C" + to_string(constrCnt++);
 }
 
-Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
+Solution gurobiSolverLCA(vector<Edge>& avEdges, vb& fixedEdge)
 {
     assert((int) avEdges.size() == (int) fixedEdge.size());
     Solution sol;
@@ -652,10 +656,171 @@ Solution gurobiSolver(vector<Edge>& avEdges, vb& fixedEdge)
     return sol;
 }
 
-bool inline leq(double a, double b)
+vector<double> O;
+vector<vector<double>> adjMat;
+vector<vector<Edge*>> toEdge;
+vector<double> rm;
+
+/* 
+Formulation from article:
+A Flow Formulation for the Optimum Communication Spanning Tree (2013)
+Elena Fernández, Carlos Luna-Mota, Achim Hildenbrandt, Gerhard Reinelt, Stefan Wiesberg
+*/
+Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
 {
-    return a < b || abs(a-b) < EPS;
+    assert((int) avEdges.size() == (int) fixedEdge.size());
+    Solution sol;
+    int m = (int) avEdges.size();
+    try 
+    {
+        if(setupGurobi)
+        {
+            // Enviroment setup
+            //env.set("OutputFlag", "0");
+            env.start();
+            O.resize(n, 0.0);
+            adjMat.resize(n, vector<double>(n));
+            toEdge.resize(n, vector<Edge*>(n, nullptr));
+            rm.resize(n, DBL_MAX);
+            for(int u = 0; u < n; ++u)
+            {
+                for(int v = u+1; v < n; ++v)
+                {
+                   O[u] += req[u][v];
+                   rm[u] = min(rm[u], req[u][v]);
+                }
+            }
+            getIdx.resize(n, vector<vector<int>>(n, vector<int>(n)));
+            int cnt = 0;
+            for(int u = 0; u < n; ++u)
+                for(int v = 0; v < n; ++v)
+                    for(int w = 0; w < n; ++w)
+                        getIdx[u][v][w] = cnt++;
+            setupGurobi = false;
+        }
+        for(int i = 0; i < n; ++i)
+            fill(adjMat[i].begin(), adjMat[i].end(), 0.0);
+        int cnt = 0;
+        for(Edge& e : avEdges)
+        {
+            adjMat[e.u][e.v] = adjMat[e.v][e.u] = e.len;
+            toEdge[e.u][e.v] = toEdge[e.v][e.u] = &avEdges[cnt++];
+        }
+
+        // Create an empty model
+        GRBModel model = GRBModel(env);
+
+        // Create binary variables
+        GRBVar* x = model.addVars(n*n, GRB_BINARY);
+        GRBVar* y = model.addVars(n*n*n, GRB_BINARY);
+
+        // Create continuous variables
+        GRBVar* f = model.addVars(n*n*n, GRB_CONTINUOUS);
+
+        const double one = 1.0;
+        const double negOne = -1.0;
+
+        GRBLinExpr obj, linexpr, linexpr2, linexpr3;
+        for(int i = 0; i < n; ++i)
+        {
+            for(int j = i+1; j < n; ++j)
+            {
+                linexpr3.addTerms(&one, &x[getIdx[0][i][j]], 1);
+                for(int u = 0; u < n; ++u)
+                {
+                    obj.addTerms(&adjMat[i][j], &f[getIdx[u][i][j]], 1);
+                    obj.addTerms(&adjMat[i][j], &f[getIdx[u][j][i]], 1);
+                }
+            }
+        }
+        model.setObjective(obj, GRB_MINIMIZE);              // (01)
+
+        for(int u = 0; u < n; ++u)
+        {
+            for(int j = 0; j < n; ++j)
+            {
+                if(u == j) continue;
+                linexpr.addTerms(&one, &f[getIdx[u][u][j]], 1);
+            }
+            model.addConstr(linexpr == O[u], getNewConstr());  // (02)
+            linexpr.clear();
+        }
+        model.addConstr(linexpr3 == n-1, getNewConstr());      // (08)
+        for(int u = 0; u < n; ++u)
+        {
+            for(int i = 0; i < n; ++i)
+            {
+                for(int j = 0; j < n; ++j)
+                {
+                    if(j > i)
+                    {
+                        //model.addConstr(f[getIdx[u][i][j]] <= (O[u]-rm[u])*y[getIdx[u][i][j]], getNewConstr());         // (04)
+                        //model.addConstr(f[getIdx[u][j][i]] <= (O[u]-rm[u])*y[getIdx[u][j][i]], getNewConstr());         // (05)
+                        model.addConstr(y[getIdx[u][i][j]] + y[getIdx[u][j][i]] <= x[getIdx[0][i][j]], getNewConstr()); // (07)
+                        model.addConstr(f[getIdx[u][i][j]] >= 0, getNewConstr());                                       // (09)
+                    }
+                    if(j == u || j == i) continue;
+                    linexpr.addTerms(&one, &f[getIdx[u][i][j]], 1);
+                    linexpr.addTerms(&negOne, &f[getIdx[u][j][i]], 1);
+                    linexpr2.addTerms(&one, &y[getIdx[u][i][j]], 1);
+                }
+                //model.addConstr(linexpr == -req[u][i], getNewConstr()); // (03)
+                linexpr.clear();
+            }
+            model.addConstr(linexpr2 == n-1, getNewConstr());           // (06)
+            linexpr2.clear();
+        }
+        for(int u = 0; u < n; ++u)
+        {
+            for(int v = u+1; v < n; ++v)
+            {
+                // remove invalid edges
+                if(adjMat[u][v] == 0.0)
+                    model.addConstr(x[getIdx[0][u][v]] == 0, getNewConstr());
+            }
+        }
+        int minuv, maxuv;
+        for(int i = 0; i < m; ++i)
+        {
+            // Constraint to ensure the fixed edges are in solution
+            if(fixedEdge[i])
+            {
+                minuv = min(avEdges[i].u, avEdges[i].v);
+                maxuv = max(avEdges[i].u, avEdges[i].v);
+                model.addConstr(x[getIdx[0][minuv][maxuv]] == 1, getNewConstr());
+            }
+        }
+        // Optimize model
+        model.optimize();
+        // Set new solution to return
+        Edge* tmp;
+        for(int u = 0; u < n; ++u)
+        {
+            for(int v = u+1; v < n; ++v)
+            {
+                if(x[getIdx[0][u][v]].get(GRB_DoubleAttr_X) > 0.99)
+                {
+                    tmp = toEdge[u][v];
+                    sol.usedEdge[tmp->id] = true;
+                    sol.adj[tmp->u].push_back(AdjInfo(tmp->v, tmp->len, tmp->id));
+                    sol.adj[tmp->v].push_back(AdjInfo(tmp->u, tmp->len, tmp->id));
+                }
+            }
+        }
+    }
+    catch(GRBException e) 
+    {
+        cout << "Error code = " << e.getErrorCode() << endl;
+        cout << e.getMessage() << endl;
+    } 
+    catch(...) 
+    {
+        cout << "Exception during optimization" << endl;
+    }
+    constrCnt = 0;
+    return sol;
 }
+
 
 // evolutionary/genetic algorithm
 struct Evolutionary
@@ -811,7 +976,7 @@ struct Evolutionary
         else
         {
             chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-            sol = gurobiSolver(avEdges, fixedEdge);
+            sol = gurobiSolverLCA(avEdges, fixedEdge);
             chrono::steady_clock::time_point end = chrono::steady_clock::now();
             std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
             sol.computeObjectiveFun();
@@ -969,6 +1134,11 @@ printf("seed = %u\n", seed);
             req[j][i] = req[i][j];
         }
     }
+    vb fixedEdges(m, false);
+    Solution sol = gurobiSolverFlow(edges, fixedEdges);
+    sol.computeObjectiveFun();
+    print(sol);
+    return 0;
     Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
     Solution best = ev.run();
     print(best);
