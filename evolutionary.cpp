@@ -823,16 +823,31 @@ struct Hash
 {
     double estSearchTime = 0.0;     // time to query in map
     double estSolverTime = 0.0;     // time to call solver
-    int nCalls = 0;                 // number of hash calls
-    struct entry
+    long long int nCalls = 0;       // number of calls
+    double remPercentage = 0.05;    // remove 5% of the table when it's slow
+    struct Entry
     {
         Solution sol;               // solver solutions
         double solverTime;          // solver time for this call
     };
-    map<vector<int>, entry> table;
-    set<pair<double, map<vector<int>, entry>::iterator>> s;
+    struct Order
+    {
+        double time;
+        map<vector<int>, Entry>::iterator it;
+        bool operator< (const Order& o) const
+        {
+            return time < o.time;
+        }
+    };
+    map<vector<int>, Entry> table;
+    multiset<Order> ms;              // used to remove fastest solver calls
+    chrono::steady_clock::time_point begin, end;
+    long long int elapsedTime;
+
     void lookUp(vector<Edge>& avEdges, vb& fixedEdge, Solution& sol)
     {
+        nCalls++;
+        // key (used edges) to find in map
         vector<int> key((int) avEdges.size());
         int nFixedEdges = 0;
         for(int i = 0; i < (int) avEdges.size(); ++i)
@@ -841,19 +856,52 @@ struct Hash
             if(fixedEdge[i]) 
                 nFixedEdges++;
         }
-        chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-        map<vector<int>, entry>::iterator it = table.find(key);
-        chrono::steady_clock::time_point end = chrono::steady_clock::now();
-        if(it == table.end())    // key not found
+        // search in map and update search time
+        begin = chrono::steady_clock::now();
+        map<vector<int>, Entry>::iterator it = table.find(key);
+        end = chrono::steady_clock::now();
+        elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+        estSearchTime += (elapsedTime - estSearchTime)/nCalls;
+        if(it == table.end())    // key not found insert in map
         {
-            chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+            // call solver and update solver time
+            Entry entry;
+            begin = chrono::steady_clock::now();
             cout << "called solver with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
-            sol = gurobiSolverFlow(avEdges, fixedEdge);
-            chrono::steady_clock::time_point end = chrono::steady_clock::now();
+            entry.sol = gurobiSolverFlow(avEdges, fixedEdge);
+            end = chrono::steady_clock::now();
+            elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
             std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << endl;
-            sol.computeObjectiveFun();
+            estSolverTime += (elapsedTime - estSolverTime)/nCalls;
+            entry.sol.computeObjectiveFun();
+            entry.solverTime = elapsedTime;
+            table[key] = entry;
+            sol = entry.sol;
+            Order order;
+            order.it = table.find(key);
+            order.time = elapsedTime;
+            ms.insert(order);
+            checkSearchTime();
             return ;
         }
+        // if key is in map
+        sol = it->second.sol;
+        estSolverTime += (it->second.solverTime - estSolverTime)/nCalls;
+        checkSearchTime();
+    }
+
+    void checkSearchTime()
+    {
+        if(leq(estSearchTime, estSolverTime))
+            return ;
+        // table has too many entries, remove 5%
+        int toRemove = remPercentage*(int) ms.size();
+        for(int i = 0; i < toRemove; ++i)
+        {
+            table.erase(ms.begin()->it);
+            ms.erase(ms.begin());
+        }
+        estSearchTime *= (1-remPercentage);
     }
 };
 
