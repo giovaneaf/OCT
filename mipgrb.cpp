@@ -96,11 +96,11 @@ int main()
         GRBVar* z = model.addVars(n*n*n, GRB_BINARY);
 
         // Create integer variables
-        GRBVar* delta = model.addVars(n, GRB_INTEGER);
         GRBVar* eta = model.addVars(n, GRB_INTEGER);
-        GRBVar* rho = model.addVars(n*n*n, GRB_INTEGER);
 
-        
+        // Create continuous variables
+        GRBVar* delta = model.addVars(n, GRB_CONTINUOUS);
+        GRBVar* rho = model.addVars(n*n*n, GRB_CONTINUOUS);
 
         GRBLinExpr obj;
         for(int u = 0; u < n; ++u)

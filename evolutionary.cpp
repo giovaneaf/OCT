@@ -30,8 +30,8 @@ vector<Edge> edges; // edges given
 vector<vector<double>> req; // requirement values
 
 // seed used to generate random numbers
-unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-//unsigned seed = 1628038108;
+//unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+unsigned seed = 1628038108;
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -464,17 +464,13 @@ void print(vb& usedEdges)
     }
 }
 
-// Variable used for Gurobi solver
+/*
+// Variables used for Gurobi solver
 vector<vector<double>> reqMin2;
 vector<vector<vector<int>>> getIdx;
 static bool setupGurobi = true;
 static int constrCnt = 0;
 GRBEnv env = GRBEnv(true);
-
-string getNewConstr()
-{
-    return "C" + to_string(constrCnt++);
-}
 
 Solution gurobiSolverAnc(vector<Edge>& avEdges, vb& fixedEdge)
 {
@@ -657,14 +653,23 @@ Solution gurobiSolverAnc(vector<Edge>& avEdges, vb& fixedEdge)
     constrCnt = 0;
     return sol;
 }
+*/
 
+// Variables used for solver
+static bool setupGurobi = true;
+static int constrCnt = 0;
+GRBEnv env = GRBEnv(true);
 vector<vector<int>> getIdxFlow;
 vector<double> O;
 
+string getNewConstr()
+{
+    return "C" + to_string(constrCnt++);
+}
+
 /* 
-Formulation from article:
+Flow formulation retrieved from:
 PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
-(Flow formulation)
 Author: Carlos Luna-Mota
 Advisor: Elena Fernández
 */
@@ -697,11 +702,6 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
         {
             env.set("OutputFlag", "0");
             env.start();
-            getIdx.resize(1, vector<vector<int>>(n, vector<int>(n)));
-            cnt = 0;
-            for(int v = 0; v < n; ++v)
-                for(int w = 0; w < n; ++w)
-                    getIdx[0][v][w] = cnt++;
             O.resize(n, 0.0);
             for(int u = 0; u < n; ++u)
             {
@@ -817,6 +817,47 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
     return sol;
 }
 
+
+// hash for crossover (when solver is called)
+struct Hash
+{
+    double estSearchTime = 0.0;     // time to query in map
+    double estSolverTime = 0.0;     // time to call solver
+    int nCalls = 0;                 // number of hash calls
+    struct entry
+    {
+        Solution sol;               // solver solutions
+        double solverTime;          // solver time for this call
+    };
+    map<vector<int>, entry> table;
+    set<pair<double, map<vector<int>, entry>::iterator>> s;
+    void lookUp(vector<Edge>& avEdges, vb& fixedEdge, Solution& sol)
+    {
+        vector<int> key((int) avEdges.size());
+        int nFixedEdges = 0;
+        for(int i = 0; i < (int) avEdges.size(); ++i)
+        {
+            key[i] = avEdges[i].id;
+            if(fixedEdge[i]) 
+                nFixedEdges++;
+        }
+        chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+        map<vector<int>, entry>::iterator it = table.find(key);
+        chrono::steady_clock::time_point end = chrono::steady_clock::now();
+        if(it == table.end())    // key not found
+        {
+            chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+            cout << "called solver with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
+            sol = gurobiSolverFlow(avEdges, fixedEdge);
+            chrono::steady_clock::time_point end = chrono::steady_clock::now();
+            std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << endl;
+            sol.computeObjectiveFun();
+            return ;
+        }
+    }
+};
+
+Hash myHash;
 
 // evolutionary/genetic algorithm
 struct Evolutionary
@@ -946,7 +987,6 @@ struct Evolutionary
         bool equal = true;
         vector<Edge> avEdges;
         vb fixedEdge;
-        int nFixedEdges = 0;
         for(int i = 0; i < m; ++i)
         {
             if((!s1.usedEdge[i]) && (!s2.usedEdge[i]))
@@ -956,7 +996,6 @@ struct Evolutionary
             if(s1.usedEdge[i] && s2.usedEdge[i])
             {
                 fixedEdge.push_back(true);
-                nFixedEdges++;
             }
             else
             {
@@ -971,12 +1010,7 @@ struct Evolutionary
         }
         else
         {
-            chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-            cout << "called solver..." << endl;
-            sol = gurobiSolverFlow(avEdges, fixedEdge);
-            chrono::steady_clock::time_point end = chrono::steady_clock::now();
-            std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
-            sol.computeObjectiveFun();
+            myHash.lookUp(avEdges, fixedEdge, sol);
         }
         return sol;
     }
