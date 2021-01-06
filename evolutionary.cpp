@@ -701,6 +701,7 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
         if(setupGurobi)
         {
             env.set("OutputFlag", "0");
+            env.set("TimeLimit", "30");
             env.start();
             O.resize(n, 0.0);
             for(int u = 0; u < n; ++u)
@@ -821,14 +822,15 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
 // hash for crossover (when solver is called)
 struct Hash
 {
-    double estSearchTime = 0.0;     // time to query in map
+    double estSearchTime = 0.0;     // time to query in map using EMA
     double estSolverTime = 0.0;     // time to call solver
+    double alpha = 0.99;            // parameter for Exponential Moving Average (EMA)
     long long int nCalls = 0;       // number of calls
     double remPercentage = 0.05;    // remove 5% of the table when it's slow
     struct Entry
     {
         Solution sol;               // solver solutions
-        double solverTime;          // solver time for this call
+        long long int solverTime;   // solver time for this call
     };
     struct Order
     {
@@ -843,6 +845,7 @@ struct Hash
     multiset<Order> ms;              // used to remove fastest solver calls
     chrono::steady_clock::time_point begin, end;
     long long int elapsedTime;
+    bool growing = true;
 
     void lookUp(vector<Edge>& avEdges, vb& fixedEdge, Solution& sol)
     {
@@ -860,17 +863,26 @@ struct Hash
         begin = chrono::steady_clock::now();
         map<vector<int>, Entry>::iterator it = table.find(key);
         end = chrono::steady_clock::now();
-        elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
-        estSearchTime += (elapsedTime - estSearchTime)/nCalls;
+        elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
+        estSearchTime = alpha*estSearchTime + (1-alpha)*elapsedTime;
+        if(leq(estSearchTime*3.0, estSolverTime))
+            growing = true;
+        else
+            growing = false;        
         if(it == table.end())    // key not found insert in map
         {
+            if(!growing)
+            {
+                table.erase(ms.begin()->it);
+                ms.erase(ms.begin());
+            }
             // call solver and update solver time
             Entry entry;
             begin = chrono::steady_clock::now();
             cout << "called solver with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
             entry.sol = gurobiSolverFlow(avEdges, fixedEdge);
             end = chrono::steady_clock::now();
-            elapsedTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+            elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
             std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << endl;
             estSolverTime += (elapsedTime - estSolverTime)/nCalls;
             entry.sol.computeObjectiveFun();
@@ -881,28 +893,13 @@ struct Hash
             order.it = table.find(key);
             order.time = elapsedTime;
             ms.insert(order);
-            checkSearchTime();
             return ;
         }
         // if key is in map
         sol = it->second.sol;
         estSolverTime += (it->second.solverTime - estSolverTime)/nCalls;
-        checkSearchTime();
     }
 
-    void checkSearchTime()
-    {
-        if(leq(estSearchTime, estSolverTime))
-            return ;
-        // table has too many entries, remove 5%
-        int toRemove = remPercentage*(int) ms.size();
-        for(int i = 0; i < toRemove; ++i)
-        {
-            table.erase(ms.begin()->it);
-            ms.erase(ms.begin());
-        }
-        estSearchTime *= (1-remPercentage);
-    }
 };
 
 Hash myHash;
@@ -1215,7 +1212,14 @@ printf("seed = %u\n", seed);
     Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
     Solution best = ev.run();
     // validation of best solution
-    Solution validation = gurobiSolverFlow(edges, best.usedEdge);
+    vector<Edge> vEdges;
+    for(int i = 0; i < m; ++i)
+    {
+        if(best.usedEdge[i])
+            vEdges.push_back(edges[i]);
+    }
+    vector<bool> usedEdge(n-1, true);
+    Solution validation = gurobiSolverFlow(vEdges, usedEdge);
     validation.computeObjectiveFun();
     assert(eq(validation.objective, best.objective));
     print(best);
