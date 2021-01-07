@@ -701,6 +701,51 @@ void buildMSTSolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
     }
 }
 
+void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
+{
+    // generate adjacency list to perform Dijkstra
+    vector<AdjInfo> adj[n];
+    for(Edge& e : edge)
+    {
+        adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+        adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+    }
+    // perform Dijkstra in the random node (cur)
+    int cur = rand()%n;
+    vector<double> dist(n, DBL_MAX);
+    vector<int> uEdge(n, -1);
+    dist[cur] = 0.0;
+    priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+    pq.push(mp(dist[cur], cur));
+    while(pq.size())
+    {
+        cur = pq.top().second;
+        pq.pop();
+        for(AdjInfo& ainfo : adj[cur])
+        {
+            if(dist[ainfo.v] > dist[cur] + ainfo.len)
+            {
+                dist[ainfo.v] = dist[cur] + ainfo.len;
+                uEdge[ainfo.v] = ainfo.id;
+                pq.push(mp(dist[ainfo.v], ainfo.v));
+            }
+        }
+    }
+    // construct Solution for minimum path tree from node
+    Edge e;
+    for(int& edgeID : uEdge)
+    {
+        if(edgeID > -1)
+        {
+            sol.usedEdge[edgeID] = true;
+            e = edges[edgeID];
+            sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+        }
+    }
+}
+
+
 /* 
 Flow formulation retrieved from:
 PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
@@ -851,7 +896,7 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit
         cout << "Exception during optimization" << endl;
     }
     // Construct a solution
-    buildMSTSolution(avEdges, fixedEdge, sol);
+    buildMinPathSolution(avEdges, sol);
     constrCnt = 0;
     return sol;
 }
@@ -1124,7 +1169,11 @@ struct Evolutionary
         }
         else
         {
-            myHash.lookUp(avEdges, fixedEdge, sol);
+            // Calling solver
+            //myHash.lookUp(avEdges, fixedEdge, sol);
+            // Calling a greedy shortest path tree from a random node
+            buildMinPathSolution(avEdges, sol);
+            sol.computeObjectiveFun();
         }
         return sol;
     }
