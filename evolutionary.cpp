@@ -15,6 +15,10 @@ struct Edge
     double len;
     int id;
     Edge(int u = 0, int v = 0, double len = 0.0, int id = 0) : u(u), v(v), len(len), id(id) {}
+    bool operator< (Edge& e)
+    {
+        return len < e.len;
+    }
 };
 
 /*
@@ -667,13 +671,43 @@ string getNewConstr()
     return "C" + to_string(constrCnt++);
 }
 
+// Kruskal like solution (easiest greedy implementation)
+void buildMSTSolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
+{
+    int m = (int) edge.size();
+    UnionFind uf(n);
+    // put fixed edges in solution
+    for(int i = 0; i < m; ++i)
+    {
+        if(fixedEdge[i])
+        {
+            uf.unionSet(edge[i].u, edge[i].v);
+            sol.usedEdge[edge[i].id] = true;
+            sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
+            sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
+        }
+    }
+    sort(edge.begin(), edge.end());
+    // put lowest cost edges that doesn't form cycle in solution
+    for(int i = 0; i < m; ++i)
+    {
+        if(!uf.isSameSet(edge[i].u, edge[i].v))
+        {
+            uf.unionSet(edge[i].u, edge[i].v);
+            sol.usedEdge[edge[i].id] = true;
+            sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
+            sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
+        }
+    }
+}
+
 /* 
 Flow formulation retrieved from:
 PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
 Author: Carlos Luna-Mota
 Advisor: Elena Fernández
 */
-Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
+Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit)
 {
     assert((int) avEdges.size() == (int) fixedEdge.size());
     Solution sol;
@@ -701,7 +735,6 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
         if(setupGurobi)
         {
             env.set("OutputFlag", "0");
-            env.set("TimeLimit", "30");
             env.start();
             O.resize(n, 0.0);
             for(int u = 0; u < n; ++u)
@@ -721,6 +754,7 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
                 getIdxFlow[u][v] = cnt++;
             }
         }
+        env.set("TimeLimit", to_string(timeLimit));
         // Create an empty model
         GRBModel model = GRBModel(env);
 
@@ -804,6 +838,8 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
                 sol.adj[avEdges[i].v].push_back(AdjInfo(avEdges[i].u, avEdges[i].len, avEdges[i].id));
             }
         }
+        constrCnt = 0;
+        return sol;
     }
     catch(GRBException e) 
     {
@@ -814,12 +850,14 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge)
     {
         cout << "Exception during optimization" << endl;
     }
+    // Construct a solution
+    buildMSTSolution(avEdges, fixedEdge, sol);
     constrCnt = 0;
     return sol;
 }
 
 
-// hash for crossover (when solver is called)
+// hash to store solution for crossover (when solver is called)
 struct Hash
 {
     double estSearchTime = 0.0;     // time to query in map using EMA
@@ -846,6 +884,7 @@ struct Hash
     chrono::steady_clock::time_point begin, end;
     long long int elapsedTime;
     bool growing = true;
+    double timeLimit = 30;           // time limit in seconds of gurobi
 
     void lookUp(vector<Edge>& avEdges, vb& fixedEdge, Solution& sol)
     {
@@ -880,11 +919,16 @@ struct Hash
             Entry entry;
             begin = chrono::steady_clock::now();
             cout << "called solver with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
-            entry.sol = gurobiSolverFlow(avEdges, fixedEdge);
+            entry.sol = gurobiSolverFlow(avEdges, fixedEdge, timeLimit);
             end = chrono::steady_clock::now();
             elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
             std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << endl;
             estSolverTime += (elapsedTime - estSolverTime)/nCalls;
+            if(leq(timeLimit*1000000, (double) elapsedTime))
+            {
+                timeLimit *= 1.01;
+                timeLimit = min(timeLimit, 60.0);
+            }
             entry.sol.computeObjectiveFun();
             entry.solverTime = elapsedTime;
             table[key] = entry;
@@ -992,9 +1036,34 @@ struct Evolutionary
             }
             // Crossover between parents
             vector<Solution> offspring;
-            for(int i = 0; i < numPar; ++i)
-                for(int j = i+1; j < numPar; ++j)
-                    offspring.push_back(crossover(solutions[parents[i]], solutions[parents[j]]));
+            int id1, id2;
+            id1 = id2 = numPar-1;
+            for(int i = 0; i < 3*numPar; ++i)
+            {
+                rngDbl = distrib(rng);
+                accVal = 0.0;
+                for(int j = 0; j < numPar; ++j)
+                {
+                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
+                    {
+                        id1 = j;
+                        break;
+                    }
+                    accVal += fitness[j];
+                }
+                rngDbl = distrib(rng);
+                accVal = 0.0;
+                for(int j = 0; j < numPar; ++j)
+                {
+                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
+                    {
+                        id2 = j;
+                        break;
+                    }
+                    accVal += fitness[j];
+                }
+                offspring.push_back(crossover(solutions[parents[id1]], solutions[parents[id2]]));
+            }
             for(Solution& sol : offspring)
             {
                 rngInt = rand()%2;
@@ -1219,7 +1288,7 @@ printf("seed = %u\n", seed);
             vEdges.push_back(edges[i]);
     }
     vector<bool> usedEdge(n-1, true);
-    Solution validation = gurobiSolverFlow(vEdges, usedEdge);
+    Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
     validation.computeObjectiveFun();
     assert(eq(validation.objective, best.objective));
     print(best);
