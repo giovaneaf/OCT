@@ -38,6 +38,8 @@ vector<vector<double>> req; // requirement values
 
 // seed used to generate random numbers
 unsigned seed;
+// seeds used for testing
+unsigned seedVector[] = {280192806, 871237442, 2540188929, 107472404, 3957311442, 316851227, 619606212, 1078082709, 916212990, 698598169};
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -1004,8 +1006,8 @@ struct Evolutionary
     int K;                      // tournament size
     int numTour;                // number of tournaments per generation
     int numGen;                 // number of generations
-    int numCrossover;
-    Evolutionary(int popSize, int numPar, int numGen)
+    int numCrossover;           // number of crossovers
+    Evolutionary(int popSize, int numPar, int numGen, int numCrossover)
     {
         solutions.resize(popSize);
         parents.resize(numPar);
@@ -1015,10 +1017,7 @@ struct Evolutionary
         this->K = numPar;
         this->numTour = numPar;
         this->numGen = numGen;
-        if(solver)
-            numCrossover = max(numPar*2, popSize);
-        else
-            numCrossover = max(numPar*(numPar-1)/2, popSize);
+        this->numCrossover = numCrossover;
     }
 
     Solution run()
@@ -1035,7 +1034,7 @@ struct Evolutionary
         double maxObj, minObj;
         Solution best;
         best.objective = DBL_MAX;
-        double fitSum;
+        double fitSum, parFitSum;
         double rngDbl;
         double accVal;
         int rngInt;
@@ -1075,6 +1074,7 @@ struct Evolutionary
             // selecting numPar parents
             // Never select worst solution found? (fitness = 0)
             std::uniform_real_distribution<double> distrib(0.0, fitSum);
+            parFitSum = 0;
             for(int i = 0; i < numPar; ++i)
             {
                 rngDbl = distrib(rng);
@@ -1088,14 +1088,16 @@ struct Evolutionary
                     }
                     accVal += fitness[j];
                 }
+                parFitSum += fitness[parents[i]];
             }
+            std::uniform_real_distribution<double> parDistrib(0.0, parFitSum);
             // Crossover between parents
             vector<Solution> offspring;
             int id1, id2;
             id1 = id2 = numPar-1;
             for(int i = 0; i < numCrossover; ++i)
             {
-                rngDbl = distrib(rng);
+                rngDbl = parDistrib(rng);
                 accVal = 0.0;
                 for(int j = 0; j < numPar; ++j)
                 {
@@ -1106,7 +1108,7 @@ struct Evolutionary
                     }
                     accVal += fitness[j];
                 }
-                rngDbl = distrib(rng);
+                rngDbl = parDistrib(rng);
                 accVal = 0.0;
                 for(int j = 0; j < numPar; ++j)
                 {
@@ -1334,14 +1336,14 @@ struct Evolutionary
 
 int main(int argc, char* argv[])
 {
-    if(argc != 7)
+    if(argc != 8)
     {
-        printf("usage: ./evolutionary popSize numParents numGen usingSolver usingMinPathPop seed < inputFile\n");
+        printf("usage: ./evolutionary popSize numParents numGen numCrossovers usingSolver usingMinPathPop seedNumber < inputFile\n");
         return -1;
     }
-    solver = atoi(argv[4]);
-    initMinPathPop = atoi(argv[5]);
-    seed = atoi(argv[6]);
+    solver = atoi(argv[5]);
+    initMinPathPop = atoi(argv[6]);
+    seed = seedVector[atoi(argv[7])];
 printf("seed = %u\n", seed);
     srand(seed);
     cin >> n >> m;
@@ -1361,7 +1363,9 @@ printf("seed = %u\n", seed);
             req[j][i] = req[i][j];
         }
     }
-    Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
+    Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
+    chrono::steady_clock::time_point begin, end;
+    begin = chrono::steady_clock::now();
     Solution best = ev.run();
     // validation of best solution
     vector<Edge> vEdges;
@@ -1375,5 +1379,7 @@ printf("seed = %u\n", seed);
     validation.computeObjectiveFun();
     assert(eq(validation.objective, best.objective));
     print(best);
+     end = chrono::steady_clock::now();
+    cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
     return 0;
 }
