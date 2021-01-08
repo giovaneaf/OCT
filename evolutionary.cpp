@@ -1274,26 +1274,12 @@ struct Evolutionary
             adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
         }
-        int i, rdInt, cur;
-        popSize = min(popSize, n);
-        vector<int> reservoir(popSize);
-        // Reservoir Algorithm to sample K random solutions
-        for(i = 0; i < popSize; ++i)
-            reservoir[i] = i;
-        for(; i < n; ++i)
+        for(int i = 0; i < popSize; ++i)
         {
-            rdInt = rand()%(i+1);
-            if(rdInt < popSize)
-            {
-                reservoir[rdInt] = i;
-            }
-        }
-        for(i = 0; i < popSize; ++i)
-        {
-            // perform Dijkstra in the node (reservoir[i])
+            // perform Dijkstra in the node (cur)
+            int cur = rand()%n;
             vector<double> dist(n, DBL_MAX);
             vector<int> uEdge(n, -1);
-            cur = reservoir[i];
             dist[cur] = 0.0;
             priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
             pq.push(mp(dist[cur], cur));
