@@ -751,7 +751,6 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     }
 }
 
-
 /* 
 Flow formulation retrieved from:
 PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
@@ -1274,12 +1273,30 @@ struct Evolutionary
             adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
         }
-        for(int i = 0; i < popSize; ++i)
+        int i, rdInt, cur;
+        int reservoirSz = min(popSize, n);
+        vector<int> reservoir(popSize);
+        // Reservoir Algorithm to sample reservoirSz random solutions
+        for(i = 0; i < reservoirSz; ++i)
+            reservoir[i] = i;
+        for(; i < n; ++i)
         {
-            // perform Dijkstra in the node (cur)
-            int cur = rand()%n;
+            rdInt = rand()%(i+1);
+            if(rdInt < reservoirSz)
+            {
+                reservoir[rdInt] = i;
+            }
+        }
+        for(i = reservoirSz; i < popSize; ++i)
+        {
+            reservoir[i] = rand()%n;
+        }
+        for(i = 0; i < popSize; ++i)
+        {
+            // perform Dijkstra in the node (reservoir[i])
             vector<double> dist(n, DBL_MAX);
             vector<int> uEdge(n, -1);
+            cur = reservoir[i];
             dist[cur] = 0.0;
             priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
             pq.push(mp(dist[cur], cur));
