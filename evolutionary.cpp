@@ -9,6 +9,9 @@ using namespace std;
 #define ii pair<int, int>
 #define EPS 1e-3
 
+int solver;
+int initMinPathPop;
+
 struct Edge 
 {
     int u, v; 
@@ -34,8 +37,7 @@ vector<Edge> edges; // edges given
 vector<vector<double>> req; // requirement values
 
 // seed used to generate random numbers
-//unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-unsigned seed = 1628038108;
+unsigned seed;
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -75,13 +77,17 @@ inline int getNeighbor(int u, Edge& e)
     return (e.u == u ? e.v : e.u);
 }
 
-bool eq(double a, double b)
+bool inline eq(double a, double b)
 {
     return abs(a-b) < EPS;
 }
 bool inline leq(double a, double b)
 {
     return a < b || abs(a-b) < EPS;
+}
+bool inline le(double a, double b)
+{
+    return a < b && abs(a-b) > EPS;
 }
 
 // IMPORTANT: Assertions should be removed when testing
@@ -969,11 +975,6 @@ struct Hash
             elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
             std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << endl;
             estSolverTime += (elapsedTime - estSolverTime)/nCalls;
-            if(leq(timeLimit*1000000, (double) elapsedTime))
-            {
-                timeLimit *= 1.01;
-                timeLimit = min(timeLimit, 60.0);
-            }
             entry.sol.computeObjectiveFun();
             entry.solverTime = elapsedTime;
             table[key] = entry;
@@ -1004,9 +1005,9 @@ struct Evolutionary
     int K;                      // tournament size
     int numTour;                // number of tournaments per generation
     int numGen;                 // number of generations
+    int numCrossover;
     Evolutionary(int popSize, int numPar, int numGen)
     {
-        assert((numPar*(numPar-1))/2 >= popSize);
         solutions.resize(popSize);
         parents.resize(numPar);
         fitness.resize(popSize);
@@ -1015,11 +1016,18 @@ struct Evolutionary
         this->K = numPar;
         this->numTour = numPar;
         this->numGen = numGen;
+        if(solver)
+            numCrossover = max(numPar*2, popSize);
+        else
+            numCrossover = max(numPar*(numPar-1)/2, popSize);
     }
 
     Solution run()
     {
-        genMinPathPop();
+        if(initMinPathPop)
+            genMinPathPop();
+        else
+            genRandomPop();
         for(Solution& sol : solutions)
         {
             sol.computeObjectiveFun();
@@ -1032,14 +1040,17 @@ struct Evolutionary
         double rngDbl;
         double accVal;
         int rngInt;
+        int notImproving = 0;
+        double curBestVal = DBL_MAX;
 
         //Mersenne Twister: Good quality random number generator
         std::mt19937 rng; 
         //Initialize with non-deterministic seeds
-        rng.seed(seed); 
+        rng.seed(seed);
 
-        while(gen <= numGen)
+        while(gen <= numGen && notImproving < min(numGen/2, 6))
         {
+            printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
             maxObj = 0;
             // find best solution
@@ -1083,7 +1094,7 @@ struct Evolutionary
             vector<Solution> offspring;
             int id1, id2;
             id1 = id2 = numPar-1;
-            for(int i = 0; i < 3*numPar; ++i)
+            for(int i = 0; i < numCrossover; ++i)
             {
                 rngDbl = distrib(rng);
                 accVal = 0.0;
@@ -1136,6 +1147,15 @@ struct Evolutionary
             {
                 solutions[i] = offspring[wins[i].second];
             }
+            if(le(best.objective, curBestVal))
+            {
+                curBestVal = best.objective;
+                notImproving = 0;
+            }
+            else
+            {
+                notImproving++;
+            }
             gen++;
         }
         return best;
@@ -1170,10 +1190,16 @@ struct Evolutionary
         else
         {
             // Calling solver
-            //myHash.lookUp(avEdges, fixedEdge, sol);
-            // Calling a greedy shortest path tree from a random node
-            buildMinPathSolution(avEdges, sol);
-            sol.computeObjectiveFun();
+            if(solver)
+            {
+                myHash.lookUp(avEdges, fixedEdge, sol);
+            }
+            else
+            {
+                // Calling a greedy shortest path tree from a random node
+                buildMinPathSolution(avEdges, sol);
+                sol.computeObjectiveFun();
+            }
         }
         return sol;
     }
@@ -1210,6 +1236,7 @@ struct Evolutionary
 	   and inserting the edges like Kruskal Algorithm */
     void genRandomPop()
     {
+        printf("RandomPop\n");
         vector<Edge> cpy = edges;
         int numForests;
         for(int i = 0; i < popSize; ++i)
@@ -1239,6 +1266,7 @@ struct Evolutionary
 
     void genMinPathPop()
     {
+        printf("MinPathPop\n");
         // generate adjacency list to perform Dijkstra
         vector<AdjInfo> adj[n];
         for(Edge& e : edges)
@@ -1303,11 +1331,14 @@ struct Evolutionary
 
 int main(int argc, char* argv[])
 {
-    if(argc != 4)
+    if(argc != 7)
     {
-        printf("usage: ./evolutionary popSize numParents numGen < inputFile\n");
+        printf("usage: ./evolutionary popSize numParents numGen usingSolver usingMinPathPop seed < inputFile\n");
         return -1;
     }
+    solver = atoi(argv[4]);
+    initMinPathPop = atoi(argv[5]);
+    seed = atoi(argv[6]);
 printf("seed = %u\n", seed);
     srand(seed);
     cin >> n >> m;
