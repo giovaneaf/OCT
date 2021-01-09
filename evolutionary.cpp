@@ -9,8 +9,8 @@ using namespace std;
 #define ii pair<int, int>
 #define EPS 1e-3
 
-int solver;
 int initMinPathPop;
+int minPathCross;
 
 struct Edge 
 {
@@ -40,6 +40,8 @@ vector<vector<double>> req; // requirement values
 unsigned seed;
 // seeds used for testing
 unsigned seedVector[] = {280192806, 871237442, 2540188929, 107472404, 3957311442, 316851227, 619606212, 1078082709, 916212990, 698598169};
+//Mersenne Twister: Good quality random number generator
+std::mt19937 rng; 
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -476,6 +478,693 @@ void print(vb& usedEdges)
     }
 }
 
+
+// Variables used for solver (only used for validation)
+static bool setupGurobi = true;
+static int constrCnt = 0;
+GRBEnv env = GRBEnv(true);
+vector<vector<int>> getIdxFlow;
+vector<double> O;
+
+string getNewConstr()
+{
+    return "C" + to_string(constrCnt++);
+}
+
+/* 
+Flow formulation retrieved from:
+PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
+Author: Carlos Luna-Mota
+Advisor: Elena Fernández
+*/
+Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit)
+{
+    assert((int) avEdges.size() == (int) fixedEdge.size());
+    Solution sol;
+    vector<vector<int>> Nmin, Nplus;
+    vector<Edge> mEdges;
+    double d = 0;
+    int m = 2*(int) avEdges.size();
+    mEdges.resize(m);
+    Nmin.resize(n, vector<int>());
+    Nplus.resize(n, vector<int>());
+    int cnt = 0;
+    for(Edge& e : avEdges)
+    {
+        mEdges[cnt] = {e.u, e.v, e.len, cnt};
+        mEdges[cnt+1] = {e.v, e.u, e.len, cnt+1};
+        Nmin[e.v].push_back(cnt);
+        Nplus[e.u].push_back(cnt);
+        Nplus[e.v].push_back(cnt+1);
+        Nmin[e.u].push_back(cnt+1);
+        d += e.len;
+        cnt += 2;
+    }
+    try 
+    {
+        if(setupGurobi)
+        {
+            env.set("OutputFlag", "0");
+            env.start();
+            O.resize(n, 0.0);
+            for(int u = 0; u < n; ++u)
+            {
+                for(int v = u+1; v < n; ++v)
+                {
+                    O[u] += req[u][v];
+                }
+            }
+            setupGurobi = false;
+        }
+        int cnt = 0;
+        for(int u = 0; u < n; ++u)
+        {
+            for(int v = 0; v < m; ++v)
+            {
+                getIdxFlow[u][v] = cnt++;
+            }
+        }
+        env.set("TimeLimit", to_string(timeLimit));
+        // Create an empty model
+        GRBModel model = GRBModel(env);
+
+        // Create binary variables
+        GRBVar* x = model.addVars(m/2, GRB_BINARY);
+
+        // Create continuous variables
+        GRBVar* f = model.addVars(n*m, GRB_CONTINUOUS);
+
+        GRBLinExpr obj, linexpr, linexpr2;;
+        for(int u = 0; u < n; ++u)
+        {
+            for(int v = 0; v < m; ++v)
+            {
+                obj.addTerms(&mEdges[v].len, &f[getIdxFlow[u][v]], 1);
+                model.addConstr(f[getIdxFlow[u][v]] >= 0, getNewConstr());  //(h)
+            }
+        }
+        model.setObjective(obj, GRB_MINIMIZE);              // (a)
+        const double one = 1.0;
+        const double negOne = -1.0;
+        for(int i = 0; i < m/2; ++i)
+        {
+            linexpr.addTerms(&one, &x[i], 1);
+        }
+        model.addConstr(linexpr == n-1, getNewConstr());      // (b)
+        linexpr.clear();
+        double val;
+        for(int o = 0; o < n; ++o)
+        {
+            for(int& inEdge : Nmin[o])
+            {
+                linexpr.addTerms(&one, &f[getIdxFlow[o][inEdge]], 1);
+            }
+            model.addConstr(linexpr == 0, getNewConstr());      // (c)
+            linexpr.clear();
+            for(int& outEdge : Nplus[o])
+            {
+                linexpr.addTerms(&one, &f[getIdxFlow[o][outEdge]], 1);
+            }
+            model.addConstr(linexpr == O[o], getNewConstr());   // (e)
+            linexpr.clear();
+            for(int j = 0; j < n; ++j)
+            {
+                if(o == j) continue;
+                for(int& inEdge : Nmin[j])
+                {
+                    linexpr.addTerms(&one, &f[getIdxFlow[o][inEdge]], 1);
+                }
+                for(int& outEdge : Nplus[j])
+                {
+                    linexpr.addTerms(&negOne, &f[getIdxFlow[o][outEdge]], 1);
+                }
+                val = (j <= o ? 0.0 : req[o][j]);
+                model.addConstr(linexpr == val, getNewConstr());    // (d)
+                linexpr.clear();
+            }
+            cnt = 0;
+            for(int j = 0; j < m/2; ++j)
+            {
+                model.addConstr(f[getIdxFlow[o][cnt]] + f[getIdxFlow[o][cnt+1]] <= O[o]*x[j]); // (f)
+                cnt += 2;
+            }
+        }
+        for(int i = 0; i < m/2; ++i)
+        {
+            if(fixedEdge[i])
+            {
+                model.addConstr(x[i] == 1, getNewConstr());
+            }
+        }
+        // Optimize model
+        model.optimize();
+        // Set new solution to return
+        for(int i = 0; i < m/2; i++)
+        {
+            if(x[i].get(GRB_DoubleAttr_X) > 0.99)
+            {
+                sol.usedEdge[avEdges[i].id] = true;
+                sol.adj[avEdges[i].u].push_back(AdjInfo(avEdges[i].v, avEdges[i].len, avEdges[i].id));
+                sol.adj[avEdges[i].v].push_back(AdjInfo(avEdges[i].u, avEdges[i].len, avEdges[i].id));
+            }
+        }
+    }
+    catch(GRBException e) 
+    {
+        cout << "Error code = " << e.getErrorCode() << endl;
+        cout << e.getMessage() << endl;
+    } 
+    catch(...) 
+    {
+        cout << "Exception during optimization" << endl;
+    }
+    return sol;
+}
+
+void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
+{
+    int m = (int) edge.size();
+    UnionFind uf(n);
+    // put fixed edges in solution
+    vector<int> idx;
+    double fitSum, minVal, maxVal, rngDbl, accVal;
+    minVal = DBL_MAX;
+    maxVal = 0;
+    int solSize = 0;
+    for(int i = 0; i < m; ++i)
+    {
+        if(fixedEdge[i])
+        {
+            uf.unionSet(edge[i].u, edge[i].v);
+            sol.usedEdge[edge[i].id] = true;
+            sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
+            sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
+            solSize++;
+        }
+        else
+        {
+            idx.push_back(i);
+            minVal = min(minVal, edge[i].len);
+            maxVal = max(maxVal, edge[i].len);
+        }
+    }
+    // create fitness for each edge
+    vector<double> fitness((int) idx.size());
+    vb unavEdge((int) idx.size(), false);
+    fitSum = 0.0;
+    for(int i = 0; i < (int) idx.size(); ++i)
+    {
+        if(eq(minVal, maxVal))
+            fitness[i] = 1.0;
+        else
+            fitness[i] = 1.0 - ((edge[idx[i]].len - minVal)/(maxVal - minVal)) + 0.1;
+        fitSum += fitness[i];
+        assert(leq(fitness[i], 1.1));
+    }
+    int chosen;
+    Edge e;
+    while(solSize < n-1)    // while solution isn't a tree
+    {
+        std::uniform_real_distribution<double> distrib(0.0, fitSum);
+        rngDbl = distrib(rng);
+        assert(leq(rngDbl, fitSum));
+        accVal = 0.0;
+        chosen = -1;
+        for(int i = 0; i < (int) idx.size(); ++i)
+        {
+            if(unavEdge[i])  // edge unavailable
+                continue;
+            if(leq(rngDbl, accVal + fitness[i]))    // solution chosen
+            {
+                chosen = i;
+                break;
+            }
+            accVal += fitness[i];
+        }
+        if(chosen == -1)    // handling possible no edge selection
+        {
+            for(int i = (int) idx.size(); i >= 0; ++i)
+            {
+                if(!unavEdge[i])
+                {
+                    chosen = i;
+                    break;
+                }
+            }
+        }
+        fitSum -= fitness[chosen];
+        e = edge[idx[chosen]];
+        unavEdge[chosen] = true;
+        // try inserting edge in solution
+        if(!uf.isSameSet(e.u, e.v))
+        {
+            uf.unionSet(e.u, e.v);
+            sol.usedEdge[e.id] = true;
+            sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+            solSize++;
+        }
+    }
+}
+
+void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
+{
+    // generate adjacency list to perform Dijkstra
+    vector<AdjInfo> adj[n];
+    for(Edge& e : edge)
+    {
+        adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+        adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+    }
+    // perform Dijkstra in the random node (cur)
+    int cur = rand()%n;
+    vector<double> dist(n, DBL_MAX);
+    vector<int> uEdge(n, -1);
+    dist[cur] = 0.0;
+    priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+    pq.push(mp(dist[cur], cur));
+    while(pq.size())
+    {
+        cur = pq.top().second;
+        pq.pop();
+        for(AdjInfo& ainfo : adj[cur])
+        {
+            if(dist[ainfo.v] > dist[cur] + ainfo.len)
+            {
+                dist[ainfo.v] = dist[cur] + ainfo.len;
+                uEdge[ainfo.v] = ainfo.id;
+                pq.push(mp(dist[ainfo.v], ainfo.v));
+            }
+        }
+    }
+    // construct Solution for minimum path tree from node
+    Edge e;
+    int cnt = 0;
+    for(int& edgeID : uEdge)
+    {
+        if(edgeID > -1)
+        {
+            sol.usedEdge[edgeID] = true;
+            cnt++;
+            e = edges[edgeID];
+            sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+        }
+    }
+    assert(cnt == n-1);
+}
+
+// evolutionary/genetic algorithm
+struct Evolutionary
+{
+    vector<Solution> solutions;
+    vector<int> parents;
+    vector<double> fitness;
+    int popSize;                // initial population size
+    int numPar;                 // number of parents
+    int K;                      // tournament size
+    int numTour;                // number of tournaments per generation
+    int numGen;                 // number of generations
+    int numCrossover;           // number of crossovers
+    Evolutionary(int popSize, int numPar, int numGen, int numCrossover)
+    {
+        solutions.resize(popSize);
+        parents.resize(numPar);
+        fitness.resize(popSize);
+        this->popSize = popSize;
+        this->numPar = numPar;
+        this->K = numPar;
+        this->numTour = numPar;
+        this->numGen = numGen;
+        this->numCrossover = numCrossover;
+    }
+
+    Solution run()
+    {
+        if(initMinPathPop)
+            genMinPathPop();
+        else
+            genRandomPop();
+        for(Solution& sol : solutions)
+        {
+            sol.computeObjectiveFun();
+        }
+        int gen = 1;
+        double maxObj, minObj;
+        Solution best;
+        best.objective = DBL_MAX;
+        double fitSum, parFitSum;
+        double rngDbl;
+        double accVal;
+        int rngInt;
+        int notImproving = 0;
+        double curBestVal = DBL_MAX;
+        while(gen <= numGen && notImproving < min(numGen/2, 15))
+        {
+            printf("Generation = %d\n", gen);
+            minObj = DBL_MAX;
+            maxObj = 0;
+            // find best solution
+            for(Solution& sol : solutions)
+            {
+                minObj = min(minObj, sol.objective);
+                maxObj = max(maxObj, sol.objective);
+                if(sol.objective < best.objective)      // update if solution is better
+                {
+                    best = sol;
+                }
+            }
+            // Evaluate fitness ([0, 1] interval, greater is better)
+            fitSum = 0;
+            for(int i = 0; i < popSize; ++i)
+            {
+                if(abs(minObj - maxObj) < EPS)
+                    fitness[i] = 1.0;
+                else
+                    fitness[i] = 1.0 - (solutions[i].objective - minObj)/(maxObj - minObj) + 0.1;
+                fitSum += fitness[i];
+                assert(leq(fitness[i], 1.1));
+            }
+            // selecting numPar parents
+            std::uniform_real_distribution<double> distrib(0.0, fitSum);
+            parFitSum = 0;
+            for(int i = 0; i < numPar; ++i)
+            {
+                rngDbl = distrib(rng);
+                accVal = 0.0;
+                for(int j = 0; j < popSize; ++j)
+                {
+                    if(leq(rngDbl, accVal + fitness[j]))    // solution chosen
+                    {
+                        parents[i] = j;
+                        break;
+                    }
+                    accVal += fitness[j];
+                }
+                parFitSum += fitness[parents[i]];
+            }
+            std::uniform_real_distribution<double> parDistrib(0.0, parFitSum);
+            // Crossover between parents
+            vector<Solution> offspring;
+            int id1, id2;
+            id1 = id2 = numPar-1;
+            for(int i = 0; i < numCrossover; ++i)
+            {
+                rngDbl = parDistrib(rng);
+                accVal = 0.0;
+                for(int j = 0; j < numPar; ++j)
+                {
+                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
+                    {
+                        id1 = j;
+                        break;
+                    }
+                    accVal += fitness[j];
+                }
+                rngDbl = parDistrib(rng);
+                accVal = 0.0;
+                for(int j = 0; j < numPar; ++j)
+                {
+                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
+                    {
+                        id2 = j;
+                        break;
+                    }
+                    accVal += fitness[j];
+                }
+                offspring.push_back(crossover(solutions[parents[id1]], solutions[parents[id2]]));
+            }
+            for(Solution& sol : offspring)
+            {
+                rngInt = rand()%2;
+                if(rngInt)
+                {
+                    sol.mutateInserting();
+                }
+                else
+                {
+                    sol.mutateRemoving();
+                }
+                if(sol.objective < best.objective)      // update if solution is better
+                {
+                    best = sol;
+                }
+            }
+            vector<ii> wins((int) offspring.size());
+            for(int i = 0; i < (int) offspring.size(); ++i)
+            {
+                wins[i] = mp(0, i);
+            }
+            tournamentSelection(offspring, wins);
+            sort(wins.begin(), wins.end(), greater<ii>());
+            for(int i = 0; i < popSize; ++i)
+            {
+                solutions[i] = offspring[wins[i].second];
+            }
+            if(le(best.objective, curBestVal))
+            {
+                curBestVal = best.objective;
+                notImproving = 0;
+            }
+            else
+            {
+                notImproving++;
+            }
+            gen++;
+        }
+        return best;
+    }
+
+    Solution crossover(Solution& s1, Solution& s2)
+    {
+        bool equal = true;
+        vector<Edge> avEdges;
+        vb fixedEdge;
+        for(int i = 0; i < m; ++i)
+        {
+            if((!s1.usedEdge[i]) && (!s2.usedEdge[i]))
+                continue;
+            // Edge used in at least one tree
+            avEdges.push_back(edges[i]);
+            if(s1.usedEdge[i] && s2.usedEdge[i])
+            {
+                fixedEdge.push_back(true);
+            }
+            else
+            {
+                equal = false;
+                fixedEdge.push_back(false);
+            }         
+        }
+        Solution sol;
+        if(equal)
+        {
+            sol = s1;
+        }
+        else
+        {
+            // Calling solver
+            if(minPathCross)
+            {
+                // Calling a greedy shortest path tree from a random node
+                buildMinPathSolution(avEdges, sol);
+                sol.computeObjectiveFun();
+            }
+            else
+            {
+                // Calling a greedy shortest path tree from a random node
+                buildProbGreedySolution(avEdges, fixedEdge, sol);
+                sol.computeObjectiveFun();
+            }
+        }
+        return sol;
+    }
+
+    void tournamentSelection(vector<Solution>& offspring, vector<ii>& wins)
+    {
+        int i, rdInt;
+        int best;
+        vector<int> reservoir(this->K); 
+        for(int tour = 0; tour < this->numTour; tour++)
+        {
+            // Reservoir Algorithm to sample K random solutions
+            for(i = 0; i < K; ++i)
+                reservoir[i] = i;
+            for(; i < (int) wins.size(); ++i)
+            {
+                rdInt = rand()%(i+1);
+                if(rdInt < this->K)
+                {
+                    reservoir[rdInt] = i;
+                }
+            }
+            best = reservoir[0];
+            for(i = 1; i < K; ++i)
+            {
+                if(offspring[reservoir[i]].objective < offspring[best].objective)
+                    best = reservoir[i];
+            }
+            wins[best].first++;
+        }
+    }
+
+    /* Generate popSize initial solutions (trees) by shuffling the edges
+	   and inserting the edges like Kruskal Algorithm */
+    void genRandomPop()
+    {
+        printf("RandomPop\n");
+        vector<Edge> cpy = edges;
+        int numForests;
+        for(int i = 0; i < popSize; ++i)
+        {
+            shuffle(begin(cpy), end(cpy), default_random_engine(seed));
+            UnionFind uf(n);
+            numForests = n;
+            Solution sol;
+            for(Edge& e: cpy)
+            {
+                if(!uf.isSameSet(e.u, e.v))
+                {
+                    uf.unionSet(e.u, e.v);
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    sol.usedEdge[e.id] = true;
+                    numForests--;
+                }
+                if(numForests == 1) // If the tree is done
+                {
+                    break;
+                }
+            }
+            assert(numForests == 1);
+            solutions[i] = sol;
+        }
+    }
+
+    void genMinPathPop()
+    {
+        printf("MinPathPop\n");
+        // generate adjacency list to perform Dijkstra
+        vector<AdjInfo> adj[n];
+        for(Edge& e : edges)
+        {
+            adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+        }
+        int i, rdInt, cur;
+        int reservoirSz = min(popSize, n);
+        vector<int> reservoir(popSize);
+        // Reservoir Algorithm to sample reservoirSz random solutions
+        for(i = 0; i < reservoirSz; ++i)
+            reservoir[i] = i;
+        for(; i < n; ++i)
+        {
+            rdInt = rand()%(i+1);
+            if(rdInt < reservoirSz)
+            {
+                reservoir[rdInt] = i;
+            }
+        }
+        for(i = reservoirSz; i < popSize; ++i)
+        {
+            reservoir[i] = rand()%n;
+        }
+        for(i = 0; i < popSize; ++i)
+        {
+            // perform Dijkstra in the node (reservoir[i])
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            cur = reservoir[i];
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                pq.pop();
+                for(AdjInfo& ainfo : adj[cur])
+                {
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
+                }
+            }
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            int cnt = 0;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    sol.usedEdge[edgeID] = true;
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    cnt++;
+                }
+            }
+            assert(cnt == n-1);
+            solutions[i] = sol;
+        }
+    }
+};
+
+int main(int argc, char* argv[])
+{
+    if(argc != 8)
+    {
+        printf("usage: ./evolutionary popSize numParents numGen numCrossovers usingMinPathPop usingMinPathCross seedNumber < inputFile\n");
+        return -1;
+    }
+    initMinPathPop = atoi(argv[5]);
+    minPathCross = atoi(argv[6]);
+    seed = seedVector[atoi(argv[7])];
+printf("seed = %u\n", seed);
+    srand(seed);
+    //Initialize with non-deterministic seeds
+    rng.seed(seed);
+    cin >> n >> m;
+    edges.resize(m);
+    for(int i = 0; i < m; ++i)
+    {
+        cin >> edges[i].u >> edges[i].v >> edges[i].len;
+        edges[i].id = i;
+    }
+    getIdxFlow.resize(n, vector<int>(2*m));
+    req.resize(n, vector<double>(n));
+    for(int i = 0; i < n; ++i)
+    {
+        for(int j = i+1; j < n; ++j)
+        {
+            cin >> req[i][j];
+            req[j][i] = req[i][j];
+        }
+    }
+    Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
+    chrono::steady_clock::time_point begin, end;
+    begin = chrono::steady_clock::now();
+    Solution best = ev.run();
+    // validation of best solution
+    vector<Edge> vEdges;
+    for(int i = 0; i < m; ++i)
+    {
+        if(best.usedEdge[i])
+            vEdges.push_back(edges[i]);
+    }
+    vector<bool> usedEdge(n-1, true);
+    /*Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
+    validation.computeObjectiveFun();
+    assert(eq(validation.objective, best.objective));*/
+    print(best);
+    end = chrono::steady_clock::now();
+    cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
+    return 0;
+}
+
 /*
 // Variables used for Gurobi solver
 vector<vector<double>> reqMin2;
@@ -667,248 +1356,7 @@ Solution gurobiSolverAnc(vector<Edge>& avEdges, vb& fixedEdge)
 }
 */
 
-// Variables used for solver
-static bool setupGurobi = true;
-static int constrCnt = 0;
-GRBEnv env = GRBEnv(true);
-vector<vector<int>> getIdxFlow;
-vector<double> O;
-
-string getNewConstr()
-{
-    return "C" + to_string(constrCnt++);
-}
-
-// Kruskal like solution (easiest greedy implementation)
-void buildMSTSolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
-{
-    int m = (int) edge.size();
-    UnionFind uf(n);
-    // put fixed edges in solution
-    for(int i = 0; i < m; ++i)
-    {
-        if(fixedEdge[i])
-        {
-            uf.unionSet(edge[i].u, edge[i].v);
-            sol.usedEdge[edge[i].id] = true;
-            sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
-            sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
-        }
-    }
-    sort(edge.begin(), edge.end());
-    // put lowest cost edges that doesn't form cycle in solution
-    for(int i = 0; i < m; ++i)
-    {
-        if(!uf.isSameSet(edge[i].u, edge[i].v))
-        {
-            uf.unionSet(edge[i].u, edge[i].v);
-            sol.usedEdge[edge[i].id] = true;
-            sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
-            sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
-        }
-    }
-}
-
-void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
-{
-    // generate adjacency list to perform Dijkstra
-    vector<AdjInfo> adj[n];
-    for(Edge& e : edge)
-    {
-        adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-        adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-    }
-    // perform Dijkstra in the random node (cur)
-    int cur = rand()%n;
-    vector<double> dist(n, DBL_MAX);
-    vector<int> uEdge(n, -1);
-    dist[cur] = 0.0;
-    priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
-    pq.push(mp(dist[cur], cur));
-    while(pq.size())
-    {
-        cur = pq.top().second;
-        pq.pop();
-        for(AdjInfo& ainfo : adj[cur])
-        {
-            if(dist[ainfo.v] > dist[cur] + ainfo.len)
-            {
-                dist[ainfo.v] = dist[cur] + ainfo.len;
-                uEdge[ainfo.v] = ainfo.id;
-                pq.push(mp(dist[ainfo.v], ainfo.v));
-            }
-        }
-    }
-    // construct Solution for minimum path tree from node
-    Edge e;
-    for(int& edgeID : uEdge)
-    {
-        if(edgeID > -1)
-        {
-            sol.usedEdge[edgeID] = true;
-            e = edges[edgeID];
-            sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-            sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-        }
-    }
-}
-
-/* 
-Flow formulation retrieved from:
-PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
-Author: Carlos Luna-Mota
-Advisor: Elena Fernández
-*/
-Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit)
-{
-    assert((int) avEdges.size() == (int) fixedEdge.size());
-    Solution sol;
-    vector<vector<int>> Nmin, Nplus;
-    vector<Edge> mEdges;
-    double d = 0;
-    int m = 2*(int) avEdges.size();
-    mEdges.resize(m);
-    Nmin.resize(n, vector<int>());
-    Nplus.resize(n, vector<int>());
-    int cnt = 0;
-    for(Edge& e : avEdges)
-    {
-        mEdges[cnt] = {e.u, e.v, e.len, cnt};
-        mEdges[cnt+1] = {e.v, e.u, e.len, cnt+1};
-        Nmin[e.v].push_back(cnt);
-        Nplus[e.u].push_back(cnt);
-        Nplus[e.v].push_back(cnt+1);
-        Nmin[e.u].push_back(cnt+1);
-        d += e.len;
-        cnt += 2;
-    }
-    try 
-    {
-        if(setupGurobi)
-        {
-            env.set("OutputFlag", "0");
-            env.start();
-            O.resize(n, 0.0);
-            for(int u = 0; u < n; ++u)
-            {
-                for(int v = u+1; v < n; ++v)
-                {
-                    O[u] += req[u][v];
-                }
-            }
-            setupGurobi = false;
-        }
-        int cnt = 0;
-        for(int u = 0; u < n; ++u)
-        {
-            for(int v = 0; v < m; ++v)
-            {
-                getIdxFlow[u][v] = cnt++;
-            }
-        }
-        env.set("TimeLimit", to_string(timeLimit));
-        // Create an empty model
-        GRBModel model = GRBModel(env);
-
-        // Create binary variables
-        GRBVar* x = model.addVars(m/2, GRB_BINARY);
-
-        // Create continuous variables
-        GRBVar* f = model.addVars(n*m, GRB_CONTINUOUS);
-
-        GRBLinExpr obj, linexpr, linexpr2;;
-        for(int u = 0; u < n; ++u)
-        {
-            for(int v = 0; v < m; ++v)
-            {
-                obj.addTerms(&mEdges[v].len, &f[getIdxFlow[u][v]], 1);
-                model.addConstr(f[getIdxFlow[u][v]] >= 0, getNewConstr());  //(h)
-            }
-        }
-        model.setObjective(obj, GRB_MINIMIZE);              // (a)
-        const double one = 1.0;
-        const double negOne = -1.0;
-        for(int i = 0; i < m/2; ++i)
-        {
-            linexpr.addTerms(&one, &x[i], 1);
-        }
-        model.addConstr(linexpr == n-1, getNewConstr());      // (b)
-        linexpr.clear();
-        double val;
-        for(int o = 0; o < n; ++o)
-        {
-            for(int& inEdge : Nmin[o])
-            {
-                linexpr.addTerms(&one, &f[getIdxFlow[o][inEdge]], 1);
-            }
-            model.addConstr(linexpr == 0, getNewConstr());      // (c)
-            linexpr.clear();
-            for(int& outEdge : Nplus[o])
-            {
-                linexpr.addTerms(&one, &f[getIdxFlow[o][outEdge]], 1);
-            }
-            model.addConstr(linexpr == O[o], getNewConstr());   // (e)
-            linexpr.clear();
-            for(int j = 0; j < n; ++j)
-            {
-                if(o == j) continue;
-                for(int& inEdge : Nmin[j])
-                {
-                    linexpr.addTerms(&one, &f[getIdxFlow[o][inEdge]], 1);
-                }
-                for(int& outEdge : Nplus[j])
-                {
-                    linexpr.addTerms(&negOne, &f[getIdxFlow[o][outEdge]], 1);
-                }
-                val = (j <= o ? 0.0 : req[o][j]);
-                model.addConstr(linexpr == val, getNewConstr());    // (d)
-                linexpr.clear();
-            }
-            cnt = 0;
-            for(int j = 0; j < m/2; ++j)
-            {
-                model.addConstr(f[getIdxFlow[o][cnt]] + f[getIdxFlow[o][cnt+1]] <= O[o]*x[j]); // (f)
-                cnt += 2;
-            }
-        }
-        for(int i = 0; i < m/2; ++i)
-        {
-            if(fixedEdge[i])
-            {
-                model.addConstr(x[i] == 1, getNewConstr());
-            }
-        }
-        // Optimize model
-        model.optimize();
-        // Set new solution to return
-        for(int i = 0; i < m/2; i++)
-        {
-            if(x[i].get(GRB_DoubleAttr_X) > 0.99)
-            {
-                sol.usedEdge[avEdges[i].id] = true;
-                sol.adj[avEdges[i].u].push_back(AdjInfo(avEdges[i].v, avEdges[i].len, avEdges[i].id));
-                sol.adj[avEdges[i].v].push_back(AdjInfo(avEdges[i].u, avEdges[i].len, avEdges[i].id));
-            }
-        }
-        constrCnt = 0;
-        return sol;
-    }
-    catch(GRBException e) 
-    {
-        cout << "Error code = " << e.getErrorCode() << endl;
-        cout << e.getMessage() << endl;
-    } 
-    catch(...) 
-    {
-        cout << "Exception during optimization" << endl;
-    }
-    // Construct a solution
-    buildMinPathSolution(avEdges, sol);
-    constrCnt = 0;
-    return sol;
-}
-
-
+/*
 // hash to store solution for crossover (when solver is called)
 struct Hash
 {
@@ -994,392 +1442,5 @@ struct Hash
 };
 
 Hash myHash;
+*/
 
-// evolutionary/genetic algorithm
-struct Evolutionary
-{
-    vector<Solution> solutions;
-    vector<int> parents;
-    vector<double> fitness;
-    int popSize;                // initial population size
-    int numPar;                 // number of parents
-    int K;                      // tournament size
-    int numTour;                // number of tournaments per generation
-    int numGen;                 // number of generations
-    int numCrossover;           // number of crossovers
-    Evolutionary(int popSize, int numPar, int numGen, int numCrossover)
-    {
-        solutions.resize(popSize);
-        parents.resize(numPar);
-        fitness.resize(popSize);
-        this->popSize = popSize;
-        this->numPar = numPar;
-        this->K = numPar;
-        this->numTour = numPar;
-        this->numGen = numGen;
-        this->numCrossover = numCrossover;
-    }
-
-    Solution run()
-    {
-        if(initMinPathPop)
-            genMinPathPop();
-        else
-            genRandomPop();
-        for(Solution& sol : solutions)
-        {
-            sol.computeObjectiveFun();
-        }
-        int gen = 1;
-        double maxObj, minObj;
-        Solution best;
-        best.objective = DBL_MAX;
-        double fitSum, parFitSum;
-        double rngDbl;
-        double accVal;
-        int rngInt;
-        int notImproving = 0;
-        double curBestVal = DBL_MAX;
-
-        //Mersenne Twister: Good quality random number generator
-        std::mt19937 rng; 
-        //Initialize with non-deterministic seeds
-        rng.seed(seed);
-
-        while(gen <= numGen && notImproving < min(numGen/2, 6))
-        {
-            printf("Generation = %d\n", gen);
-            minObj = DBL_MAX;
-            maxObj = 0;
-            // find best solution
-            for(Solution& sol : solutions)
-            {
-                minObj = min(minObj, sol.objective);
-                maxObj = max(maxObj, sol.objective);
-                if(sol.objective < best.objective)      // update if solution is better
-                {
-                    best = sol;
-                }
-            }
-            // Evaluate fitness ([0, 1] interval, greater is better)
-            fitSum = 0;
-            for(int i = 0; i < popSize; ++i)
-            {
-                if(abs(minObj - maxObj) < EPS)
-                    fitness[i] = 1.0;
-                else
-                    fitness[i] = 1.0 - (solutions[i].objective - minObj)/(maxObj - minObj);
-                fitSum += fitness[i];
-            }
-            // selecting numPar parents
-            // Never select worst solution found? (fitness = 0)
-            std::uniform_real_distribution<double> distrib(0.0, fitSum);
-            parFitSum = 0;
-            for(int i = 0; i < numPar; ++i)
-            {
-                rngDbl = distrib(rng);
-                accVal = 0.0;
-                for(int j = 0; j < popSize; ++j)
-                {
-                    if(leq(rngDbl, accVal + fitness[j]))    // solution chosen
-                    {
-                        parents[i] = j;
-                        break;
-                    }
-                    accVal += fitness[j];
-                }
-                parFitSum += fitness[parents[i]];
-            }
-            std::uniform_real_distribution<double> parDistrib(0.0, parFitSum);
-            // Crossover between parents
-            vector<Solution> offspring;
-            int id1, id2;
-            id1 = id2 = numPar-1;
-            for(int i = 0; i < numCrossover; ++i)
-            {
-                rngDbl = parDistrib(rng);
-                accVal = 0.0;
-                for(int j = 0; j < numPar; ++j)
-                {
-                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
-                    {
-                        id1 = j;
-                        break;
-                    }
-                    accVal += fitness[j];
-                }
-                rngDbl = parDistrib(rng);
-                accVal = 0.0;
-                for(int j = 0; j < numPar; ++j)
-                {
-                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
-                    {
-                        id2 = j;
-                        break;
-                    }
-                    accVal += fitness[j];
-                }
-                offspring.push_back(crossover(solutions[parents[id1]], solutions[parents[id2]]));
-            }
-            for(Solution& sol : offspring)
-            {
-                rngInt = rand()%2;
-                if(rngInt)
-                {
-                    sol.mutateInserting();
-                }
-                else
-                {
-                    sol.mutateRemoving();
-                }
-                if(sol.objective < best.objective)      // update if solution is better
-                {
-                    best = sol;
-                }
-            }
-            vector<ii> wins((int) offspring.size());
-            for(int i = 0; i < (int) offspring.size(); ++i)
-            {
-                wins[i] = mp(0, i);
-            }
-            tournamentSelection(offspring, wins);
-            sort(wins.begin(), wins.end(), greater<ii>());
-            for(int i = 0; i < popSize; ++i)
-            {
-                solutions[i] = offspring[wins[i].second];
-            }
-            if(le(best.objective, curBestVal))
-            {
-                curBestVal = best.objective;
-                notImproving = 0;
-            }
-            else
-            {
-                notImproving++;
-            }
-            gen++;
-        }
-        return best;
-    }
-
-    Solution crossover(Solution& s1, Solution& s2)
-    {
-        bool equal = true;
-        vector<Edge> avEdges;
-        vb fixedEdge;
-        for(int i = 0; i < m; ++i)
-        {
-            if((!s1.usedEdge[i]) && (!s2.usedEdge[i]))
-                continue;
-            // Edge used in at least one tree
-            avEdges.push_back(edges[i]);
-            if(s1.usedEdge[i] && s2.usedEdge[i])
-            {
-                fixedEdge.push_back(true);
-            }
-            else
-            {
-                equal = false;
-                fixedEdge.push_back(false);
-            }         
-        }
-        Solution sol;
-        if(equal)
-        {
-            sol = s1;
-        }
-        else
-        {
-            // Calling solver
-            if(solver)
-            {
-                myHash.lookUp(avEdges, fixedEdge, sol);
-            }
-            else
-            {
-                // Calling a greedy shortest path tree from a random node
-                buildMinPathSolution(avEdges, sol);
-                sol.computeObjectiveFun();
-            }
-        }
-        return sol;
-    }
-
-    void tournamentSelection(vector<Solution>& offspring, vector<ii>& wins)
-    {
-        int i, rdInt;
-        int best;
-        vector<int> reservoir(this->K); 
-        for(int tour = 0; tour < this->numTour; tour++)
-        {
-            // Reservoir Algorithm to sample K random solutions
-            for(i = 0; i < K; ++i)
-                reservoir[i] = i;
-            for(; i < (int) wins.size(); ++i)
-            {
-                rdInt = rand()%(i+1);
-                if(rdInt < this->K)
-                {
-                    reservoir[rdInt] = i;
-                }
-            }
-            best = reservoir[0];
-            for(i = 1; i < K; ++i)
-            {
-                if(offspring[reservoir[i]].objective < offspring[best].objective)
-                    best = reservoir[i];
-            }
-            wins[best].first++;
-        }
-    }
-
-    /* Generate popSize initial solutions (trees) by shuffling the edges
-	   and inserting the edges like Kruskal Algorithm */
-    void genRandomPop()
-    {
-        printf("RandomPop\n");
-        vector<Edge> cpy = edges;
-        int numForests;
-        for(int i = 0; i < popSize; ++i)
-        {
-            shuffle(begin(cpy), end(cpy), default_random_engine(seed));
-            UnionFind uf(n);
-            numForests = n;
-            Solution sol;
-            for(Edge& e: cpy)
-            {
-                if(!uf.isSameSet(e.u, e.v))
-                {
-                    uf.unionSet(e.u, e.v);
-                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-                    sol.usedEdge[e.id] = true;
-                    numForests--;
-                }
-                if(numForests == 1) // If the tree is done
-                {
-                    break;
-                }
-            }
-            solutions[i] = sol;
-        }
-    }
-
-    void genMinPathPop()
-    {
-        printf("MinPathPop\n");
-        // generate adjacency list to perform Dijkstra
-        vector<AdjInfo> adj[n];
-        for(Edge& e : edges)
-        {
-            adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-            adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-        }
-        int i, rdInt, cur;
-        int reservoirSz = min(popSize, n);
-        vector<int> reservoir(popSize);
-        // Reservoir Algorithm to sample reservoirSz random solutions
-        for(i = 0; i < reservoirSz; ++i)
-            reservoir[i] = i;
-        for(; i < n; ++i)
-        {
-            rdInt = rand()%(i+1);
-            if(rdInt < reservoirSz)
-            {
-                reservoir[rdInt] = i;
-            }
-        }
-        for(i = reservoirSz; i < popSize; ++i)
-        {
-            reservoir[i] = rand()%n;
-        }
-        for(i = 0; i < popSize; ++i)
-        {
-            // perform Dijkstra in the node (reservoir[i])
-            vector<double> dist(n, DBL_MAX);
-            vector<int> uEdge(n, -1);
-            cur = reservoir[i];
-            dist[cur] = 0.0;
-            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
-            pq.push(mp(dist[cur], cur));
-            while(pq.size())
-            {
-                cur = pq.top().second;
-                pq.pop();
-                for(AdjInfo& ainfo : adj[cur])
-                {
-                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
-                    {
-                        dist[ainfo.v] = dist[cur] + ainfo.len;
-                        uEdge[ainfo.v] = ainfo.id;
-                        pq.push(mp(dist[ainfo.v], ainfo.v));
-                    }
-                }
-            }
-            // construct Solution for minimum path tree from node
-            Solution sol;
-            Edge e;
-            for(int& edgeID : uEdge)
-            {
-                if(edgeID > -1)
-                {
-                    sol.usedEdge[edgeID] = true;
-                    e = edges[edgeID];
-                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-                }
-            }
-            solutions[i] = sol;
-        }
-    }
-};
-
-int main(int argc, char* argv[])
-{
-    if(argc != 8)
-    {
-        printf("usage: ./evolutionary popSize numParents numGen numCrossovers usingSolver usingMinPathPop seedNumber < inputFile\n");
-        return -1;
-    }
-    solver = atoi(argv[5]);
-    initMinPathPop = atoi(argv[6]);
-    seed = seedVector[atoi(argv[7])];
-printf("seed = %u\n", seed);
-    srand(seed);
-    cin >> n >> m;
-    edges.resize(m);
-    for(int i = 0; i < m; ++i)
-    {
-        cin >> edges[i].u >> edges[i].v >> edges[i].len;
-        edges[i].id = i;
-    }
-    getIdxFlow.resize(n, vector<int>(2*m));
-    req.resize(n, vector<double>(n));
-    for(int i = 0; i < n; ++i)
-    {
-        for(int j = i+1; j < n; ++j)
-        {
-            cin >> req[i][j];
-            req[j][i] = req[i][j];
-        }
-    }
-    Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
-    chrono::steady_clock::time_point begin, end;
-    begin = chrono::steady_clock::now();
-    Solution best = ev.run();
-    // validation of best solution
-    vector<Edge> vEdges;
-    for(int i = 0; i < m; ++i)
-    {
-        if(best.usedEdge[i])
-            vEdges.push_back(edges[i]);
-    }
-    vector<bool> usedEdge(n-1, true);
-    Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
-    validation.computeObjectiveFun();
-    assert(eq(validation.objective, best.objective));
-    print(best);
-     end = chrono::steady_clock::now();
-    cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
-    return 0;
-}
