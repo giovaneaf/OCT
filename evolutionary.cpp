@@ -10,7 +10,7 @@ using namespace std;
 #define EPS 1e-3
 
 int initMinPathPop;
-int minPathCross;
+int crossoverParam;
 
 struct Edge 
 {
@@ -89,7 +89,7 @@ bool inline leq(double a, double b)
 {
     return a < b || abs(a-b) < EPS;
 }
-bool inline le(double a, double b)
+bool inline lt(double a, double b)
 {
     return a < b && abs(a-b) > EPS;
 }
@@ -641,6 +641,44 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit
     return sol;
 }
 
+void buildRandomSolution(vector<Edge>& edge, Solution& sol)
+{
+    int m = (int) edge.size();
+    UnionFind uf(n);
+    vector<int> adj[n];
+    vector<int> idxEdge(n, 0);
+    for(int i = 0; i < m; ++i)
+    {
+        adj[edge[i].u].push_back(i);
+        adj[edge[i].v].push_back(i);
+    }
+    // randomly sort the edges
+    for(int i = 0; i < n; ++i)
+    {
+        shuffle(begin(adj[i]), end(adj[i]), default_random_engine(seed));
+    }
+    int cur = 0;
+    int nEdges = 0;
+    Edge e;
+    while(nEdges < n-1)
+    {
+        if(idxEdge[cur] < (int) adj[cur].size())    // has edge to test
+        {
+            e = edge[adj[cur][idxEdge[cur]]];
+            if(!uf.isSameSet(e.u, e.v))
+            {
+                uf.unionSet(e.u, e.v);
+                nEdges++;
+                sol.usedEdge[e.id] = true;
+                sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+            }
+            idxEdge[cur]++;
+        }
+        cur = ((cur == n-1) ? 0 : cur+1);
+    }
+}
+
 void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
 {
     int m = (int) edge.size();
@@ -774,10 +812,13 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     assert(cnt == n-1);
 }
 
+
 // evolutionary/genetic algorithm
 struct Evolutionary
 {
     vector<Solution> solutions;
+    vector<Solution> offspring;
+    vector<ii> wins;
     vector<int> parents;
     vector<double> fitness;
     int popSize;                // initial population size
@@ -791,6 +832,8 @@ struct Evolutionary
         solutions.resize(popSize);
         parents.resize(numPar);
         fitness.resize(popSize);
+        offspring.resize(numCrossover);
+        wins.resize(numCrossover);
         this->popSize = popSize;
         this->numPar = numPar;
         this->K = numPar;
@@ -865,11 +908,10 @@ struct Evolutionary
             }
             std::uniform_real_distribution<double> parDistrib(0.0, parFitSum);
             // Crossover between parents
-            vector<Solution> offspring;
             int id1, id2;
-            id1 = id2 = numPar-1;
             for(int i = 0; i < numCrossover; ++i)
             {
+                id1 = id2 = numPar-1;
                 rngDbl = parDistrib(rng);
                 accVal = 0.0;
                 for(int j = 0; j < numPar; ++j)
@@ -879,7 +921,7 @@ struct Evolutionary
                         id1 = j;
                         break;
                     }
-                    accVal += fitness[j];
+                    accVal += fitness[parents[j]];
                 }
                 rngDbl = parDistrib(rng);
                 accVal = 0.0;
@@ -890,9 +932,9 @@ struct Evolutionary
                         id2 = j;
                         break;
                     }
-                    accVal += fitness[j];
+                    accVal += fitness[parents[j]];
                 }
-                offspring.push_back(crossover(solutions[parents[id1]], solutions[parents[id2]]));
+                offspring[i] = crossover(solutions[parents[id1]], solutions[parents[id2]]);
             }
             for(Solution& sol : offspring)
             {
@@ -910,18 +952,17 @@ struct Evolutionary
                     best = sol;
                 }
             }
-            vector<ii> wins((int) offspring.size());
-            for(int i = 0; i < (int) offspring.size(); ++i)
+            for(int i = 0; i < numCrossover; ++i)
             {
                 wins[i] = mp(0, i);
             }
             tournamentSelection(offspring, wins);
             sort(wins.begin(), wins.end(), greater<ii>());
-            for(int i = 0; i < popSize; ++i)
+            for(int i = 0; i < min(numCrossover, popSize); ++i)
             {
                 solutions[i] = offspring[wins[i].second];
             }
-            if(le(best.objective, curBestVal))
+            if(lt(best.objective, curBestVal))
             {
                 curBestVal = best.objective;
                 notImproving = 0;
@@ -931,6 +972,7 @@ struct Evolutionary
                 notImproving++;
             }
             gen++;
+            printf("Best so far = %.10f\n", best.objective);
         }
         return best;
     }
@@ -964,16 +1006,22 @@ struct Evolutionary
         else
         {
             // Calling solver
-            if(minPathCross)
+            if(crossoverParam == 0)
             {
-                // Calling a greedy shortest path tree from a random node
-                buildMinPathSolution(avEdges, sol);
+                // Calling random crossover
+                buildRandomSolution(avEdges, sol);
+                sol.computeObjectiveFun();
+            }
+            else if(crossoverParam == 1)
+            {
+                // Calling a greedy crossover selecting lowest cost edges with higher probability
+                buildProbGreedySolution(avEdges, fixedEdge, sol);
                 sol.computeObjectiveFun();
             }
             else
             {
                 // Calling a greedy shortest path tree from a random node
-                buildProbGreedySolution(avEdges, fixedEdge, sol);
+                buildMinPathSolution(avEdges, sol);
                 sol.computeObjectiveFun();
             }
         }
@@ -1065,11 +1113,8 @@ struct Evolutionary
                 reservoir[rdInt] = i;
             }
         }
-        for(i = reservoirSz; i < popSize; ++i)
-        {
-            reservoir[i] = rand()%n;
-        }
-        for(i = 0; i < popSize; ++i)
+        // Generate Min Path Tree solution
+        for(i = 0; i < reservoirSz; ++i)
         {
             // perform Dijkstra in the node (reservoir[i])
             vector<double> dist(n, DBL_MAX);
@@ -1110,20 +1155,160 @@ struct Evolutionary
             assert(cnt == n-1);
             solutions[i] = sol;
         }
+
+        // Generate Min Path Tree solution with some edges removed with some probability
+        for(i = reservoirSz; i < popSize; ++i)
+        {
+            // invalid edges
+            vector<bool> tabu(m, false);
+            cur = rand()%n;
+            printf("cur = %d\n", cur);
+            for(int j = 0; j < m; ++j)
+            {
+                if(solutions[cur].usedEdge[j])
+                {
+                    if((rand()%10) == 0)    // 10% of chance to remove an used edge from the sol
+                        tabu[j] = true;
+                }
+            }
+            // perform Dijkstra in the node (cur)
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                pq.pop();
+                for(AdjInfo& ainfo : adj[cur])
+                {
+                    if(tabu[ainfo.id])
+                        continue;
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
+                }
+            }
+            bool connected = true;
+            for(int j = 0; j < n; ++j)
+            {
+                if(lt(dist[j], DBL_MAX))       // node reacheable
+                    continue;
+                connected = false;
+                break;
+            }
+            if(!connected)                     // try again!
+                continue;
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            int cnt = 0;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    sol.usedEdge[edgeID] = true;
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    cnt++;
+                }
+            }
+            assert(cnt == n-1);
+            solutions[i] = sol;
+            print(sol);
+        }
+
+        /*
+        // Generate remaining solutions by picking lowest cost edges with high probability
+        for(i = reservoirSz; i < popSize; ++i)
+        {
+            UnionFind uf(n);
+            double fitSum, minVal, maxVal, rngDbl, accVal;
+            minVal = DBL_MAX;
+            maxVal = 0;
+            int solSize = 0;
+            for(int j = 0; j < m; ++j)
+            {
+                minVal = min(minVal, edges[j].len);
+                maxVal = max(maxVal, edges[j].len);
+            }
+            // create fitness for each edge
+            vector<double> fitness(m);
+            vb unavEdge(m, false);
+            fitSum = 0.0;
+            for(int j = 0; j < m; ++j)
+            {
+                if(eq(minVal, maxVal))
+                    fitness[j] = 1.0;
+                else
+                    fitness[j] = 1.0 - ((edges[j].len - minVal)/(maxVal - minVal)) + 0.2;
+                fitSum += fitness[j];
+                assert(leq(fitness[j], 1.2));
+            }
+            int chosen;
+            Edge e;
+            Solution sol;
+            while(solSize < n-1)    // while solution isn't a tree
+            {
+                std::uniform_real_distribution<double> distrib(0.0, fitSum);
+                rngDbl = distrib(rng);
+                assert(leq(rngDbl, fitSum));
+                accVal = 0.0;
+                chosen = m-1;
+                for(int j = 0; j < m; ++j)
+                {
+                    if(unavEdge[j])  // edge unavailable
+                        continue;
+                    if(leq(rngDbl, accVal + fitness[j]))    // solution chosen
+                    {
+                        chosen = j;
+                        break;
+                    }
+                    accVal += fitness[j];
+                }
+                fitSum -= fitness[chosen];
+                e = edges[chosen];
+                unavEdge[chosen] = true;
+                // try inserting edge in solution
+                if(!uf.isSameSet(e.u, e.v))
+                {
+                    uf.unionSet(e.u, e.v);
+                    sol.usedEdge[e.id] = true;
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    solSize++;
+                }
+            }
+            solutions[i] = sol;;
+        }
+        */
+    
     }
+
 };
 
 int main(int argc, char* argv[])
 {
     if(argc != 8)
     {
-        printf("usage: ./evolutionary popSize numParents numGen numCrossovers usingMinPathPop usingMinPathCross seedNumber < inputFile\n");
+        printf("usage: ./evolutionary popSize numParents numGen numCrossovers usingMinPathPop crossoverParam seedNumber < inputFile\n");
         return -1;
     }
     initMinPathPop = atoi(argv[5]);
-    minPathCross = atoi(argv[6]);
+    crossoverParam = atoi(argv[6]);
     seed = seedVector[atoi(argv[7])];
 printf("seed = %u\n", seed);
+    if(crossoverParam == 0)
+        printf("Random Crossovers Selected\n");
+    else if(crossoverParam == 1)
+        printf("Greedy probabilistic Crossovers Selected\n");
+    else
+        printf("Minimum Path Crossovers Selected\n");
     srand(seed);
     //Initialize with non-deterministic seeds
     rng.seed(seed);
@@ -1149,17 +1334,17 @@ printf("seed = %u\n", seed);
     begin = chrono::steady_clock::now();
     Solution best = ev.run();
     // validation of best solution
-    vector<Edge> vEdges;
+    /*vector<Edge> vEdges;
     for(int i = 0; i < m; ++i)
     {
         if(best.usedEdge[i])
             vEdges.push_back(edges[i]);
     }
     vector<bool> usedEdge(n-1, true);
-    /*Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
+    Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
     validation.computeObjectiveFun();
     assert(eq(validation.objective, best.objective));*/
-    print(best);
+    printf("Best Value Found = %.10f\n", best.objective);
     end = chrono::steady_clock::now();
     cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
     return 0;
