@@ -862,7 +862,7 @@ struct Evolutionary
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
-        while(gen <= numGen && notImproving < min(numGen/2, 15))
+        while(gen <= numGen && notImproving < min(numGen/2, 20))
         {
             printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
@@ -1162,7 +1162,6 @@ struct Evolutionary
             // invalid edges
             vector<bool> tabu(m, false);
             cur = rand()%n;
-            printf("cur = %d\n", cur);
             for(int j = 0; j < m; ++j)
             {
                 if(solutions[cur].usedEdge[j])
@@ -1202,7 +1201,10 @@ struct Evolutionary
                 break;
             }
             if(!connected)                     // try again!
+            {
+                i--;
                 continue;
+            }
             // construct Solution for minimum path tree from node
             Solution sol;
             Edge e;
@@ -1220,7 +1222,6 @@ struct Evolutionary
             }
             assert(cnt == n-1);
             solutions[i] = sol;
-            print(sol);
         }
 
         /*
