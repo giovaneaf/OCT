@@ -715,9 +715,9 @@ void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
         if(eq(minVal, maxVal))
             fitness[i] = 1.0;
         else
-            fitness[i] = 1.0 - ((edge[idx[i]].len - minVal)/(maxVal - minVal)) + 0.1;
+            fitness[i] = 1.0 - ((edge[idx[i]].len - minVal)/(maxVal - minVal)) + 0.4;
         fitSum += fitness[i];
-        assert(leq(fitness[i], 1.1));
+        assert(leq(fitness[i], 1.4));
     }
     int chosen;
     Edge e;
@@ -812,7 +812,6 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     assert(cnt == n-1);
 }
 
-
 // evolutionary/genetic algorithm
 struct Evolutionary
 {
@@ -862,7 +861,7 @@ struct Evolutionary
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
-        while(gen <= numGen && notImproving < min(numGen/2, 20))
+        while(gen <= numGen && notImproving < min(numGen/2, 15))
         {
             printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
@@ -884,9 +883,9 @@ struct Evolutionary
                 if(abs(minObj - maxObj) < EPS)
                     fitness[i] = 1.0;
                 else
-                    fitness[i] = 1.0 - (solutions[i].objective - minObj)/(maxObj - minObj) + 0.1;
+                    fitness[i] = 1.0 - (solutions[i].objective - minObj)/(maxObj - minObj) + 0.2;
                 fitSum += fitness[i];
-                assert(leq(fitness[i], 1.1));
+                assert(leq(fitness[i], 1.2));
             }
             // selecting numPar parents
             std::uniform_real_distribution<double> distrib(0.0, fitSum);
