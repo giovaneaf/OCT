@@ -804,8 +804,6 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     assert(cnt == n-1);
 }
 
-double bestInitialSolution;
-
 // evolutionary/genetic algorithm
 struct Evolutionary
 {
@@ -843,11 +841,9 @@ struct Evolutionary
             genGreedyProbPop();
         else if(mode == 2)
             genMinPathPop();
-        bestInitialSolution = DBL_MAX;
         for(Solution& sol : solutions)
         {
             sol.computeObjectiveFun();
-            bestInitialSolution = min(bestInitialSolution, sol.objective);
         }
         int gen = 1;
         double maxObj, minObj;
@@ -1322,30 +1318,11 @@ struct Evolutionary
 
 int main(int argc, char* argv[])
 {
-    if(argc != 6)
+    if(argc != 5)
     {
-        printf("usage: ./evolutionary popSize numParents numGen numCrossovers mode < inputFile\n");
+        printf("usage: ./evolutionary popSize numParents numGen numCrossovers < inputFile\n");
         return -1;
     }
-    mode = atoi(argv[5]);
-    ofstream log("log.txt", ios::app);
-    if(mode == 0)
-    {
-        printf("Random Mode Selected\n");
-        log << "RANDOM\n";
-    }
-    else if(mode == 1)
-    {
-        printf("MST Mode Selected\n");
-        log << "MST\n";
-    }
-    else if (mode == 2)
-    {
-        printf("Minimum Path Mode Selected\n");
-        log << "Minimum Path\n";
-    }
-    else
-        return 0;
     cin >> n >> m;
     edges.resize(m);
     for(int i = 0; i < m; ++i)
@@ -1363,31 +1340,51 @@ int main(int argc, char* argv[])
             req[j][i] = req[i][j];
         }
     }
-    for(int seedid = 0; seedid < 10; ++seedid)
+    ofstream log("log.txt", ios::app);
+    log << fixed << setprecision(10);
+    for(mode = 2; mode >= 1; mode--)
     {
-        seed = seedVector[seedid];
-        printf("seed = %u\n", seed);
-        //Initialize seeds
-        srand(seed);
-        rng.seed(seed);
-        Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
-        chrono::steady_clock::time_point begin, end;
-        begin = chrono::steady_clock::now();
-        Solution best = ev.run();
-        /*vector<Edge> vEdges;
-        for(int i = 0; i < m; ++i)
+        if(mode == 0)
         {
-            if(best.usedEdge[i])
-                vEdges.push_back(edges[i]);
+            printf("Random Mode Selected\n");
+            log << "RANDOM\n";
         }
-        vector<bool> usedEdge(n-1, true);
-        Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
-        validation.computeObjectiveFun();
-        assert(eq(validation.objective, best.objective));*/
-        printf("Best Value Found = %.10f\n", best.objective);
-        end = chrono::steady_clock::now();
-        cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
-        log << bestInitialSolution << "," << best.objective << "," << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << '\n';
+        else if(mode == 1)
+        {
+            printf("MST Mode Selected\n");
+            log << "MST\n";
+        }
+        else
+        {
+            printf("Minimum Path Mode Selected\n");
+            log << "Minimum Path\n";
+        }
+        for(int seedid = 0; seedid < 10; ++seedid)
+        {
+            seed = seedVector[seedid];
+            printf("seed = %u\n", seed);
+            //Initialize seeds
+            srand(seed);
+            rng.seed(seed);
+            Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
+            chrono::steady_clock::time_point begin, end;
+            begin = chrono::steady_clock::now();
+            Solution best = ev.run();
+            /*vector<Edge> vEdges;
+            for(int i = 0; i < m; ++i)
+            {
+                if(best.usedEdge[i])
+                    vEdges.push_back(edges[i]);
+            }
+            vector<bool> usedEdge(n-1, true);
+            Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
+            validation.computeObjectiveFun();
+            assert(eq(validation.objective, best.objective));*/
+            printf("Best Value Found = %.10f\n", best.objective);
+            end = chrono::steady_clock::now();
+            cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
+            log << best.objective << endl;
+        }
     }
     log.close();
     return 0;
