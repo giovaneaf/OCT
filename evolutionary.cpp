@@ -1,5 +1,5 @@
 #include <bits/stdc++.h>
-#include <gurobi_c++.h>
+//#include <gurobi_c++.h>
 
 using namespace std;
 
@@ -40,7 +40,8 @@ unsigned seed;
 // seeds used for testing
 unsigned seedVector[] = {280192806, 871237442, 2540188929, 107472404, 3957311442, 316851227, 619606212, 1078082709, 916212990, 698598169};
 //Mersenne Twister: Good quality random number generator
-std::mt19937 rng; 
+std::mt19937 rng;
+map<ii, Edge*> edgeMap;
 
 // Union find used for cycle detection efficiently
 struct UnionFind
@@ -78,6 +79,20 @@ struct AdjInfo
 inline int getNeighbor(int u, Edge& e)
 {
     return (e.u == u ? e.v : e.u);
+}
+
+void createPruffer(vector<int>& pruffer, list<vector<int>>& trees, int cur, int K)
+{
+    if((int) pruffer.size() == cur)
+    {
+        trees.push_back(pruffer);
+        return ;
+    }
+    for(int i = 0; i < K; ++i)
+    {
+        pruffer[cur] = i;
+        createPruffer(pruffer, trees, cur+1, K);
+    }
 }
 
 bool inline eq(double a, double b)
@@ -842,6 +857,10 @@ struct Evolutionary
             genGreedyProbPop();
         else if(mode == 2)
             genMinPathPop();
+        else if(mode == 3)
+        {
+            genPTASPop();
+        }
         for(Solution& sol : solutions)
         {
             sol.computeObjectiveFun();
@@ -1315,6 +1334,188 @@ struct Evolutionary
         }
     }
 
+    void genPTASPop()
+    {
+        vector<AdjInfo> adj[n];
+        for(Edge& e : edges)
+        {
+            adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+            edgeMap[mp(min(e.u, e.v), max(e.u, e.v))] = &e;
+        }
+        int popIdx = 0;
+        vector<int> reservoir(5);
+        vector<bool> selected(n);
+        int K, i, rdInt;
+        while(popIdx < popSize)
+        {
+            fill(selected.begin(), selected.end(), false);
+            K = min(n-1, 2 + rand()%4);
+            for(i = 0; i < K; ++i)
+                reservoir[i] = i;
+            for(; i < n; ++i)
+            {
+                rdInt = rand()%(i+1);
+                if(rdInt < K)
+                {
+                    reservoir[rdInt] = i;
+                }
+            }
+            for(i = 0; i < K; ++i)
+            {
+                selected[reservoir[i]] = true;
+            }
+            shuffle(reservoir.begin(), reservoir.begin()+K, default_random_engine(seed));
+            int root = -1;
+            for(i = 0; i < K; ++i)
+            {
+                for(AdjInfo& ainfo : adj[reservoir[i]])
+                {
+                    if(!selected[ainfo.v])
+                    {
+                        root = i;
+                        break;
+                    }
+                }
+            }
+            if(root == -1)
+                continue;
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            int cur = reservoir[root];
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                pq.pop();
+                for(AdjInfo& ainfo : adj[cur])
+                {
+                    if(selected[ainfo.v])
+                        continue;
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
+                }
+            }
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    sol.usedEdge[edgeID] = true;
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                }
+            }
+            if(K == 2)
+            {
+                auto it = edgeMap.find(mp(min(reservoir[0], reservoir[1]), max(reservoir[0], reservoir[1])));
+                if(it == edgeMap.end())
+                {
+                    // invalid tree
+                    continue;
+                }
+                e = *(it->second);
+                sol.usedEdge[e.id] = true;
+                sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                solutions[popIdx++] = sol;
+                continue;
+            }
+            
+            // for K > 2
+            /*for(int i = 0; i < K; ++i)
+            {
+                printf("%d ", reservoir[i]);
+            }
+            putchar('\n');
+            printf("%d\n", root);*/
+            vector<int> tmp(K-2);
+            list<vector<int>> trees;
+            createPruffer(tmp, trees, 0, K);
+            vector<int> deg(K);
+            Solution best, aux;
+            best.objective = DBL_MAX;
+            for(vector<int>& pruffer : trees)
+            {
+                fill(deg.begin(), deg.end(), 1);
+                aux = sol;
+                for(int& node : pruffer)
+                {
+                    deg[node]++;
+                }
+                set<int> s;
+                for(i = 0; i < K; ++i)
+                {
+                    if(deg[i] == 1)
+                        s.insert(i);
+                }
+                int lowest, node;
+                bool valid = true;
+                for(i = 0; i < K-2; ++i)
+                {
+                    assert((int) s.size());
+                    lowest = reservoir[*s.begin()];
+                    s.erase(s.begin());
+                    node = reservoir[pruffer[i]];
+                    auto it = edgeMap.find(mp(min(lowest, node), max(lowest, node)));
+                    if(it == edgeMap.end())
+                    {
+                        // invalid tree, skip
+                        valid = false;
+                        break;
+                    }
+                    e = *(it->second);
+                    aux.usedEdge[e.id] = true;
+                    aux.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    aux.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    deg[pruffer[i]]--;
+                    if(deg[pruffer[i]] == 1)
+                        s.insert(pruffer[i]);
+                }
+                if(valid)
+                {
+                    lowest = reservoir[*s.begin()];
+                    s.erase(s.begin());
+                    node = reservoir[*s.begin()];
+                    auto it = edgeMap.find(mp(min(lowest, node), max(lowest, node)));
+                    if(it == edgeMap.end())
+                    {
+                        // invalid tree, skip
+                        valid = false;
+                    }
+                    if(valid)
+                    {
+                        // test this tree
+                        e = *(it->second);
+                        aux.usedEdge[e.id] = true;
+                        aux.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                        aux.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                        aux.computeObjectiveFun();
+                        if(aux.objective < best.objective)
+                        {
+                            best = aux;
+                        }
+                    }
+                }
+            }
+
+            if(lt(best.objective, DBL_MAX))
+            {
+                solutions[popIdx++] = best;
+            }
+
+        }
+    }
+
 };
 
 int main(int argc, char* argv[])
@@ -1355,7 +1556,7 @@ int main(int argc, char* argv[])
             printf("MST Mode Selected\n");
             log << "MST\n";
         }
-        else
+        else if(mode == 2)
         {
             printf("Minimum Path Mode Selected\n");
             log << "Minimum Path\n";
