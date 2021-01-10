@@ -472,7 +472,7 @@ void print(vb& usedEdges)
 
 
 // Variables used for solver
-static bool setupGurobi = true;
+/*static bool setupGurobi = true;
 static int constrCnt = 0;
 GRBEnv env = GRBEnv(true);
 vector<vector<int>> getIdxFlow;
@@ -481,7 +481,7 @@ vector<double> O;
 string getNewConstr()
 {
     return "C" + to_string(constrCnt++);
-}
+}*/
 
 /* 
 Flow formulation retrieved from:
@@ -489,6 +489,7 @@ PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
 Author: Carlos Luna-Mota
 Advisor: Elena Fernández
 */
+/*
 Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit)
 {
     assert((int) avEdges.size() == (int) fixedEdge.size());
@@ -632,7 +633,7 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit
     }
     return sol;
 }
-
+*/
 void buildRandomSolution(vector<Edge>& edge, Solution& sol)
 {
     int m = (int) edge.size();
@@ -855,7 +856,7 @@ struct Evolutionary
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
-        while(gen <= numGen && notImproving < min(numGen/2, 15))
+        while(gen <= numGen && notImproving < 25)
         {
             printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
@@ -1330,7 +1331,7 @@ int main(int argc, char* argv[])
         cin >> edges[i].u >> edges[i].v >> edges[i].len;
         edges[i].id = i;
     }
-    getIdxFlow.resize(n, vector<int>(2*m));
+    //getIdxFlow.resize(n, vector<int>(2*m));
     req.resize(n, vector<double>(n));
     for(int i = 0; i < n; ++i)
     {
