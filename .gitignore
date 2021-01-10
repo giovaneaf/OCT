@@ -4,3 +4,6 @@ mipgrb
 
 #settings.json
 .vscode/settings.json
+
+#log file
+log.txt

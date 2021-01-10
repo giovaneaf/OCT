@@ -9,8 +9,7 @@ using namespace std;
 #define ii pair<int, int>
 #define EPS 1e-3
 
-int initMinPathPop;
-int crossoverParam;
+int mode;
 
 struct Edge 
 {
@@ -354,13 +353,6 @@ struct Solution
                         }
                     }
                 }
-                // assertion to check if curObj value is correct
-                Solution ss = *this;
-                ss.usedEdge[i] = true;
-                ss.adj[edges[i].u].push_back(AdjInfo(edges[i].v, edges[i].len, edges[i].id));
-                ss.adj[edges[i].v].push_back(AdjInfo(edges[i].u, edges[i].len, edges[i].id));
-                ss.computeObjectiveFun();
-                assert(eq(ss.objective, curObj));
                 if(curObj < minObj)
                 {
                     minObj = curObj;
@@ -479,7 +471,7 @@ void print(vb& usedEdges)
 }
 
 
-// Variables used for solver (only used for validation)
+// Variables used for solver
 static bool setupGurobi = true;
 static int constrCnt = 0;
 GRBEnv env = GRBEnv(true);
@@ -812,6 +804,8 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     assert(cnt == n-1);
 }
 
+double bestInitialSolution;
+
 // evolutionary/genetic algorithm
 struct Evolutionary
 {
@@ -822,34 +816,38 @@ struct Evolutionary
     vector<double> fitness;
     int popSize;                // initial population size
     int numPar;                 // number of parents
-    int K;                      // tournament size
     int numTour;                // number of tournaments per generation
     int numGen;                 // number of generations
     int numCrossover;           // number of crossovers
+    int offspringSize;  
     Evolutionary(int popSize, int numPar, int numGen, int numCrossover)
     {
+        this->popSize = popSize;
+        this->numPar = numPar;
+        this->numTour = 5*numPar;
+        this->numGen = numGen;
+        this->numCrossover = numCrossover;
+        this->offspringSize = numCrossover+numPar;
         solutions.resize(popSize);
         parents.resize(numPar);
         fitness.resize(popSize);
-        offspring.resize(numCrossover);
-        wins.resize(numCrossover);
-        this->popSize = popSize;
-        this->numPar = numPar;
-        this->K = numPar;
-        this->numTour = numPar;
-        this->numGen = numGen;
-        this->numCrossover = numCrossover;
+        offspring.resize(offspringSize);
+        wins.resize(offspringSize);
     }
 
     Solution run()
     {
-        if(initMinPathPop)
-            genMinPathPop();
-        else
+        if(mode == 0)
             genRandomPop();
+        else if(mode == 1)
+            genGreedyProbPop();
+        else if(mode == 2)
+            genMinPathPop();
+        bestInitialSolution = DBL_MAX;
         for(Solution& sol : solutions)
         {
             sol.computeObjectiveFun();
+            bestInitialSolution = min(bestInitialSolution, sol.objective);
         }
         int gen = 1;
         double maxObj, minObj;
@@ -935,29 +933,37 @@ struct Evolutionary
                 }
                 offspring[i] = crossover(solutions[parents[id1]], solutions[parents[id2]]);
             }
-            for(Solution& sol : offspring)
+            int idx = numCrossover;
+            for(int i = 0; i < numPar; ++i)
             {
+                offspring[idx++] = solutions[parents[i]];
+            }
+            int numMutations = offspringSize + rand()%(3*offspringSize);
+            Solution* solPtr;
+            for(int i = 0; i < numMutations; ++i)
+            {
+                solPtr = &offspring[rand()%offspringSize];
                 rngInt = rand()%2;
                 if(rngInt)
                 {
-                    sol.mutateInserting();
+                    solPtr->mutateInserting();
                 }
                 else
                 {
-                    sol.mutateRemoving();
+                    solPtr->mutateRemoving();
                 }
-                if(sol.objective < best.objective)      // update if solution is better
+                if(solPtr->objective < best.objective)      // update if solution is better
                 {
-                    best = sol;
+                    best = *solPtr;
                 }
             }
-            for(int i = 0; i < numCrossover; ++i)
+            for(int i = 0; i < offspringSize; ++i)
             {
                 wins[i] = mp(0, i);
             }
             tournamentSelection(offspring, wins);
             sort(wins.begin(), wins.end(), greater<ii>());
-            for(int i = 0; i < min(numCrossover, popSize); ++i)
+            for(int i = 0; i < min(offspringSize, popSize); ++i)
             {
                 solutions[i] = offspring[wins[i].second];
             }
@@ -1005,19 +1011,19 @@ struct Evolutionary
         else
         {
             // Calling solver
-            if(crossoverParam == 0)
+            if(mode == 0)
             {
                 // Calling random crossover
                 buildRandomSolution(avEdges, sol);
                 sol.computeObjectiveFun();
             }
-            else if(crossoverParam == 1)
+            else if(mode == 1)
             {
                 // Calling a greedy crossover selecting lowest cost edges with higher probability
                 buildProbGreedySolution(avEdges, fixedEdge, sol);
                 sol.computeObjectiveFun();
             }
-            else
+            else if(mode == 2)
             {
                 // Calling a greedy shortest path tree from a random node
                 buildMinPathSolution(avEdges, sol);
@@ -1031,7 +1037,11 @@ struct Evolutionary
     {
         int i, rdInt;
         int best;
-        vector<int> reservoir(this->K); 
+        int K = 2 + rand()%(numPar/3);;
+        double p, curP, rdDbl;
+        p = 0.9;
+        vector<int> reservoir(K);
+        std::uniform_real_distribution<double> rd01(0.0, 1.0);
         for(int tour = 0; tour < this->numTour; tour++)
         {
             // Reservoir Algorithm to sample K random solutions
@@ -1040,16 +1050,29 @@ struct Evolutionary
             for(; i < (int) wins.size(); ++i)
             {
                 rdInt = rand()%(i+1);
-                if(rdInt < this->K)
+                if(rdInt < K)
                 {
                     reservoir[rdInt] = i;
                 }
             }
-            best = reservoir[0];
-            for(i = 1; i < K; ++i)
+            priority_queue<pair<double, int>> pq;
+            for(i = 0; i < K; ++i)
             {
-                if(offspring[reservoir[i]].objective < offspring[best].objective)
-                    best = reservoir[i];
+                pq.push(mp(-offspring[reservoir[i]].objective, i));
+            }
+            best = reservoir[K-1];
+            curP = 0.8;
+            while(pq.size())
+            {
+                rdDbl = rd01(rng);
+                assert(leq(rdDbl, 1.0));
+                if(leq(rdDbl, curP))
+                {
+                    best = reservoir[pq.top().second];
+                    break;
+                }
+                pq.pop();
+                curP *= p;
             }
             wins[best].first++;
         }
@@ -1088,6 +1111,8 @@ struct Evolutionary
         }
     }
 
+    /* Generate popSize initial solutions with minimal path trees of
+       random vertices using Dijkstra */
     void genMinPathPop()
     {
         printf("MinPathPop\n");
@@ -1221,11 +1246,16 @@ struct Evolutionary
             }
             assert(cnt == n-1);
             solutions[i] = sol;
-        }
+        }  
+    }
 
-        /*
-        // Generate remaining solutions by picking lowest cost edges with high probability
-        for(i = reservoirSz; i < popSize; ++i)
+    /* Generate popSize initial solutions with highest probability of
+       of chosing the lowest cost edges (MST-like) */
+    void genGreedyProbPop()
+    {
+        printf("MST-like pop\n");
+
+        for(int i = 0; i < popSize; ++i)
         {
             UnionFind uf(n);
             double fitSum, minVal, maxVal, rngDbl, accVal;
@@ -1246,9 +1276,9 @@ struct Evolutionary
                 if(eq(minVal, maxVal))
                     fitness[j] = 1.0;
                 else
-                    fitness[j] = 1.0 - ((edges[j].len - minVal)/(maxVal - minVal)) + 0.2;
+                    fitness[j] = 1.0 - ((edges[j].len - minVal)/(maxVal - minVal)) + 0.4;
                 fitSum += fitness[j];
-                assert(leq(fitness[j], 1.2));
+                assert(leq(fitness[j], 1.4));
             }
             int chosen;
             Edge e;
@@ -1286,32 +1316,36 @@ struct Evolutionary
             }
             solutions[i] = sol;;
         }
-        */
-    
     }
 
 };
 
 int main(int argc, char* argv[])
 {
-    if(argc != 8)
+    if(argc != 6)
     {
-        printf("usage: ./evolutionary popSize numParents numGen numCrossovers usingMinPathPop crossoverParam seedNumber < inputFile\n");
+        printf("usage: ./evolutionary popSize numParents numGen numCrossovers mode < inputFile\n");
         return -1;
     }
-    initMinPathPop = atoi(argv[5]);
-    crossoverParam = atoi(argv[6]);
-    seed = seedVector[atoi(argv[7])];
-printf("seed = %u\n", seed);
-    if(crossoverParam == 0)
-        printf("Random Crossovers Selected\n");
-    else if(crossoverParam == 1)
-        printf("Greedy probabilistic Crossovers Selected\n");
+    mode = atoi(argv[5]);
+    ofstream log("log.txt", ios::app);
+    if(mode == 0)
+    {
+        printf("Random Mode Selected\n");
+        log << "RANDOM\n";
+    }
+    else if(mode == 1)
+    {
+        printf("MST Mode Selected\n");
+        log << "MST\n";
+    }
+    else if (mode == 2)
+    {
+        printf("Minimum Path Mode Selected\n");
+        log << "Minimum Path\n";
+    }
     else
-        printf("Minimum Path Crossovers Selected\n");
-    srand(seed);
-    //Initialize with non-deterministic seeds
-    rng.seed(seed);
+        return 0;
     cin >> n >> m;
     edges.resize(m);
     for(int i = 0; i < m; ++i)
@@ -1329,24 +1363,33 @@ printf("seed = %u\n", seed);
             req[j][i] = req[i][j];
         }
     }
-    Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
-    chrono::steady_clock::time_point begin, end;
-    begin = chrono::steady_clock::now();
-    Solution best = ev.run();
-    // validation of best solution
-    /*vector<Edge> vEdges;
-    for(int i = 0; i < m; ++i)
+    for(int seedid = 0; seedid < 10; ++seedid)
     {
-        if(best.usedEdge[i])
-            vEdges.push_back(edges[i]);
+        seed = seedVector[seedid];
+        printf("seed = %u\n", seed);
+        //Initialize seeds
+        srand(seed);
+        rng.seed(seed);
+        Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
+        chrono::steady_clock::time_point begin, end;
+        begin = chrono::steady_clock::now();
+        Solution best = ev.run();
+        /*vector<Edge> vEdges;
+        for(int i = 0; i < m; ++i)
+        {
+            if(best.usedEdge[i])
+                vEdges.push_back(edges[i]);
+        }
+        vector<bool> usedEdge(n-1, true);
+        Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
+        validation.computeObjectiveFun();
+        assert(eq(validation.objective, best.objective));*/
+        printf("Best Value Found = %.10f\n", best.objective);
+        end = chrono::steady_clock::now();
+        cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
+        log << bestInitialSolution << "," << best.objective << "," << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << '\n';
     }
-    vector<bool> usedEdge(n-1, true);
-    Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
-    validation.computeObjectiveFun();
-    assert(eq(validation.objective, best.objective));*/
-    printf("Best Value Found = %.10f\n", best.objective);
-    end = chrono::steady_clock::now();
-    cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
+    log.close();
     return 0;
 }
 
