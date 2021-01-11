@@ -23,26 +23,6 @@ struct Edge
     }
 };
 
-/*
-The file is read in the following format
-n m
-list of m with two nodes and length. (u v c)
-combination(n, 2) lines of requirement values (r01, r02, r03, ..., r0n, r12, r13, ..., rn-1n)
-*/
-
-int n; // number of vertices
-int m; // number of edges
-vector<Edge> edges; // edges given
-vector<vector<double>> req; // requirement values
-
-// seed used to generate random numbers
-unsigned seed;
-// seeds used for testing
-unsigned seedVector[] = {280192806, 871237442, 2540188929, 107472404, 3957311442, 316851227, 619606212, 1078082709, 916212990, 698598169};
-//Mersenne Twister: Good quality random number generator
-std::mt19937 rng;
-map<ii, Edge*> edgeMap;
-
 // Union find used for cycle detection efficiently
 struct UnionFind
 {
@@ -74,6 +54,28 @@ struct AdjInfo
     int id;
     AdjInfo(int v, double len, int id) : v(v), len(len), id(id) {}
 };
+
+
+/*
+The file is read in the following format
+n m
+list of m with two nodes and length. (u v c)
+combination(n, 2) lines of requirement values (r01, r02, r03, ..., r0n, r12, r13, ..., rn-1n)
+*/
+
+int n; // number of vertices
+int m; // number of edges
+vector<Edge> edges; // edges given
+vector<vector<double>> req; // requirement values
+vector<vector<AdjInfo>> adjList; // used for PTAS crossover
+
+// seed used to generate random numbers
+unsigned seed;
+// seeds used for testing
+unsigned seedVector[] = {280192806, 871237442, 2540188929, 107472404, 3957311442, 316851227, 619606212, 1078082709, 916212990, 698598169};
+//Mersenne Twister: Good quality random number generator
+std::mt19937 rng;
+map<ii, Edge*> edgeMap;
 
 // Return the neighbor of node u for a given edge
 inline int getNeighbor(int u, Edge& e)
@@ -789,10 +791,14 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     dist[cur] = 0.0;
     priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
     pq.push(mp(dist[cur], cur));
+    double w;
     while(pq.size())
     {
         cur = pq.top().second;
+        w = pq.top().first;
         pq.pop();
+        if(lt(dist[cur], w))
+            continue;
         for(AdjInfo& ainfo : adj[cur])
         {
             if(dist[ainfo.v] > dist[cur] + ainfo.len)
@@ -818,6 +824,306 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
         }
     }
     assert(cnt == n-1);
+}
+
+void buildPTASSOlution(vector<Edge>& edge, Solution& sol)
+{
+    // generate adjacency list
+    vector<AdjInfo> adj[n];
+    for(Edge& e : edge)
+    {
+        adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+        adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+    }
+    vector<int> reservoir(5);
+    vector<bool> selected(n);
+    vector<int> tmp(n);
+    int K, i, cur, cnt;
+    while(true) // break means 
+    {
+        fill(selected.begin(), selected.end(), false);
+        K = min(n-1, 2 + rand()%4);
+        reservoir[0] = rand()%n;
+        map<int, int> nToK;
+        selected[reservoir[0]] = true;
+        for(i = 1; i < K; ++i)
+        {
+            cnt = 0;
+            for(AdjInfo& ainfo : adjList[reservoir[i-1]])
+            {
+                if(selected[ainfo.v])   // node already selected
+                    continue;
+                tmp[cnt++] = ainfo.v;
+            }
+            if(cnt == 0)
+                break;
+            reservoir[i] = tmp[rand()%cnt];
+            selected[reservoir[i]] = true;   
+        }
+        if(i < K)     // invalid set
+            continue;
+        shuffle(reservoir.begin(), reservoir.begin()+K, default_random_engine(seed));
+        for(i = 0; i < K; ++i)
+        {
+            nToK[reservoir[i]] = i;
+        }
+        int root = -1;
+        for(i = 0; i < K; ++i)
+        {
+            for(AdjInfo& ainfo : adjList[reservoir[i]])
+            {
+                if(!selected[ainfo.v])
+                {
+                    root = i;
+                    break;
+                }
+            }
+        }
+        if(root == -1)
+            continue;
+        vector<vector<double>> dist(n, vector<double>(n, DBL_MAX));
+        vector<int> uEdge(n, -1);
+        int rootId = reservoir[root];
+        cur = reservoir[root];
+        priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+        dist[rootId][cur] = 0.0;
+        pq.push(mp(dist[rootId][cur], cur));
+        cnt = 0;
+        double w;
+        while(pq.size())
+        {
+            cur = pq.top().second;
+            w = pq.top().first;
+            pq.pop();
+            if(lt(dist[rootId][cur], w))
+                continue;
+            cnt++;
+            assert(!selected[cur] || cur == reservoir[root]);
+            for(AdjInfo& ainfo : adj[cur])
+            {
+                if(selected[ainfo.v])
+                    continue;
+                if(dist[rootId][ainfo.v] > dist[rootId][cur] + ainfo.len)
+                {
+                    dist[rootId][ainfo.v] = dist[rootId][cur] + ainfo.len;
+                    uEdge[ainfo.v] = ainfo.id;
+                    pq.push(mp(dist[rootId][ainfo.v], ainfo.v));
+                }
+            }
+        }
+        if(cnt < n-K+1)
+            continue;
+        // construct Solution for minimum path tree from node
+        Edge e;
+        for(int& edgeID : uEdge)
+        {
+            if(edgeID > -1)
+            {
+                sol.usedEdge[edgeID] = true;
+                e = edges[edgeID];
+                sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+            }
+        }
+        if(K == 2)
+        {
+            auto it = edgeMap.find(mp(min(reservoir[0], reservoir[1]), max(reservoir[0], reservoir[1])));
+            if(it == edgeMap.end())
+            {
+                // invalid tree
+                continue;
+            }
+            e = *(it->second);
+            sol.usedEdge[e.id] = true;
+            sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+            break; // found a valid solution
+        }
+        double objFun = 0.0;
+        // compute partial objective function (without the K selected nodes)
+        for(i = 0; i < n; ++i)
+        {
+            if(!selected[i])
+            {
+                cur = i;
+                dist[i][cur] = 0.0;
+                pq.push(mp(dist[i][cur], cur));
+                while(pq.size())
+                {
+                    cur = pq.top().second;
+                    w = pq.top().first;
+                    pq.pop();
+                    if(lt(dist[i][cur], w))
+                        continue;
+                    assert(!selected[cur] || cur == reservoir[root]);
+                    for(AdjInfo& ainfo : sol.adj[cur])
+                    {
+                        if(selected[ainfo.v])
+                            continue;
+                        if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
+                        {
+                            dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
+                            pq.push(mp(dist[i][ainfo.v], ainfo.v));
+                        }
+                    }
+                }
+                for(int j = i+1; j < n; ++j)
+                {
+                    if(selected[j])
+                        continue;
+                    objFun += dist[i][j]*req[i][j];
+                }
+            }
+        }
+
+        vector<int> tmp(K-2);
+        list<vector<int>> trees;
+        createPruffer(tmp, trees, 0, K);
+        vector<int> deg(K);
+        double bestValue = DBL_MAX;
+        double tmpValue;
+        vector<vector<AdjInfo>> bestAdj;
+        for(vector<int>& pruffer : trees)
+        {
+            fill(deg.begin(), deg.end(), 1);
+            vector<vector<AdjInfo>> adjTmp(K, vector<AdjInfo>());
+            for(int& node : pruffer)
+            {
+                deg[node]++;
+            }
+            set<int> s;
+            for(i = 0; i < K; ++i)
+            {
+                if(deg[i] == 1)
+                    s.insert(i);
+            }
+            int lowest, node;
+            bool valid = true;
+            for(i = 0; i < K-2; ++i)
+            {
+                assert((int) s.size());
+                lowest = reservoir[*s.begin()];
+                s.erase(s.begin());
+                node = reservoir[pruffer[i]];
+                auto it = edgeMap.find(mp(min(lowest, node), max(lowest, node)));
+                if(it == edgeMap.end())
+                {
+                    // invalid tree, skip
+                    valid = false;
+                    break;
+                }
+                e = *(it->second);
+                adjTmp[nToK[e.u]].push_back(AdjInfo(nToK[e.v], e.len, e.id));
+                adjTmp[nToK[e.v]].push_back(AdjInfo(nToK[e.u], e.len, e.id));
+                deg[pruffer[i]]--;
+                if(deg[pruffer[i]] == 1)
+                    s.insert(pruffer[i]);
+            }
+            if(valid)
+            {
+                lowest = reservoir[*s.begin()];
+                s.erase(s.begin());
+                node = reservoir[*s.begin()];
+                auto it = edgeMap.find(mp(min(lowest, node), max(lowest, node)));
+                if(it == edgeMap.end())
+                {
+                    // invalid tree, skip
+                    valid = false;
+                }
+                if(valid)
+                {
+                    // test this tree
+                    e = *(it->second);
+                    adjTmp[nToK[e.u]].push_back(AdjInfo(nToK[e.v], e.len, e.id));
+                    adjTmp[nToK[e.v]].push_back(AdjInfo(nToK[e.u], e.len, e.id));
+                    tmpValue = objFun;
+                    vector<bool> seen(K);
+                    queue<int> q;
+                    q.push(root);
+                    // update the distance values for the K nodes
+                    while(q.size())
+                    {
+                        cur = q.front();
+                        seen[cur] = true;
+                        q.pop();
+                        for(AdjInfo& ainfo : adjTmp[cur])
+                        {
+                            if(!seen[ainfo.v])
+                            {
+                                for(i = 0; i < n; ++i)
+                                {
+                                    if(!selected[i])
+                                    {
+                                        dist[reservoir[ainfo.v]][i] = dist[reservoir[cur]][i] + ainfo.len;
+                                        tmpValue += dist[reservoir[ainfo.v]][i]*req[reservoir[ainfo.v]][i];
+                                    }
+                                }
+                                seen[ainfo.v] = true;
+                                q.push(ainfo.v);
+                            }
+                        }
+                    }
+                    for(i = 0; i < K; ++i)
+                    {
+                        for(int j = 0; j < K; ++j)
+                        {
+                            dist[i][j] = DBL_MAX;
+                        }
+                    }
+                    for(i = 0; i < K; ++i)
+                    {
+                        dist[i][i] = 0.0;
+                        pq.push(mp(dist[i][i], i));
+                        double w;
+                        while(pq.size())
+                        {
+                            cur = pq.top().second;
+                            w = pq.top().first;
+                            pq.pop();
+                            if(lt(dist[i][cur], w))
+                                continue;
+                            for(AdjInfo& ainfo : adjTmp[cur])
+                            {
+                                assert(selected[reservoir[ainfo.v]]);
+                                if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
+                                {
+                                    dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
+                                    pq.push(mp(dist[i][ainfo.v], ainfo.v));
+                                }
+                            }
+                        }
+                        for(int j = 1; j < K; ++j)
+                        {
+                            tmpValue += dist[i][j]*req[reservoir[i]][reservoir[j]];
+                        }
+                    }
+                    if(lt(tmpValue, bestValue))
+                    {
+                        bestValue = tmpValue;
+                        bestAdj = adjTmp;
+                    }
+                }
+            }
+        }
+
+        if((int) bestAdj.size() == K-1) // found a valid solution
+        {
+            for(int i = 0; i < K; ++i)
+            {
+                for(AdjInfo& ainfo : bestAdj[i])
+                {
+                    e = edges[ainfo.id];
+                    if(sol.usedEdge[e.id] == false)
+                    {
+                        sol.usedEdge[e.id] = true;
+                        sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                        sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    }
+                }
+            }
+            break;
+        }
+    }
 }
 
 // evolutionary/genetic algorithm
@@ -859,7 +1165,7 @@ struct Evolutionary
         }
         for(Solution& sol : solutions)
         {
-            sol.computeObjectiveFun();
+            assert(lt(0, sol.objective) && lt(sol.objective, DBL_MAX));
         }
         int gen = 1;
         double maxObj, minObj;
@@ -1023,6 +1329,12 @@ struct Evolutionary
                 buildMinPathSolution(avEdges, sol);
                 sol.computeObjectiveFun();
             }
+            else
+            {
+                // Calling PTAS crossover
+                buildMinPathSolution(avEdges, sol);
+                sol.computeObjectiveFun();
+            }
         }
         return sol;
     }
@@ -1101,6 +1413,7 @@ struct Evolutionary
                 }
             }
             assert(numForests == 1);
+            sol.computeObjectiveFun();
             solutions[i] = sol;
         }
     }
@@ -1141,10 +1454,14 @@ struct Evolutionary
             dist[cur] = 0.0;
             priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
             pq.push(mp(dist[cur], cur));
+            double w;
             while(pq.size())
             {
                 cur = pq.top().second;
+                w = pq.top().first;
                 pq.pop();
+                if(lt(dist[cur], w))
+                    continue;
                 for(AdjInfo& ainfo : adj[cur])
                 {
                     if(dist[ainfo.v] > dist[cur] + ainfo.len)
@@ -1171,6 +1488,7 @@ struct Evolutionary
                 }
             }
             assert(cnt == n-1);
+            sol.computeObjectiveFun();
             solutions[i] = sol;
         }
 
@@ -1194,10 +1512,14 @@ struct Evolutionary
             dist[cur] = 0.0;
             priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
             pq.push(mp(dist[cur], cur));
+            double w;
             while(pq.size())
             {
                 cur = pq.top().second;
+                w = pq.top().first;
                 pq.pop();
+                if(lt(dist[cur], w))
+                    continue;
                 for(AdjInfo& ainfo : adj[cur])
                 {
                     if(tabu[ainfo.id])
@@ -1308,46 +1630,57 @@ struct Evolutionary
                     solSize++;
                 }
             }
+            sol.computeObjectiveFun();
             solutions[i] = sol;;
         }
     }
 
     void genPTASPop()
     {
-        vector<AdjInfo> adj[n];
+        adjList.assign(n, vector<AdjInfo>());
         for(Edge& e : edges)
         {
-            adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-            adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+            adjList[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            adjList[e.v].push_back(AdjInfo(e.u, e.len, e.id));
             edgeMap[mp(min(e.u, e.v), max(e.u, e.v))] = &e;
         }
         int popIdx = 0;
         vector<int> reservoir(5);
         vector<bool> selected(n);
-        int K, i, rdInt;
+        vector<int> tmp(n);
+        int K, i, cur, cnt;
         while(popIdx < popSize)
         {
             fill(selected.begin(), selected.end(), false);
             K = min(n-1, 2 + rand()%4);
-            for(i = 0; i < K; ++i)
-                reservoir[i] = i;
-            for(; i < n; ++i)
+            reservoir[0] = rand()%n;
+            map<int, int> nToK;
+            selected[reservoir[0]] = true;
+            for(i = 1; i < K; ++i)
             {
-                rdInt = rand()%(i+1);
-                if(rdInt < K)
+                cnt = 0;
+                for(AdjInfo& ainfo : adjList[reservoir[i-1]])
                 {
-                    reservoir[rdInt] = i;
+                    if(selected[ainfo.v])   // node already selected
+                        continue;
+                    tmp[cnt++] = ainfo.v;
                 }
+                if(cnt == 0)
+                    break;
+                reservoir[i] = tmp[rand()%cnt];
+                selected[reservoir[i]] = true;   
             }
+            if(i < K)     // invalid set
+                continue;
+            shuffle(reservoir.begin(), reservoir.begin()+K, default_random_engine(seed));
             for(i = 0; i < K; ++i)
             {
-                selected[reservoir[i]] = true;
+                nToK[reservoir[i]] = i;
             }
-            shuffle(reservoir.begin(), reservoir.begin()+K, default_random_engine(seed));
             int root = -1;
             for(i = 0; i < K; ++i)
             {
-                for(AdjInfo& ainfo : adj[reservoir[i]])
+                for(AdjInfo& ainfo : adjList[reservoir[i]])
                 {
                     if(!selected[ainfo.v])
                     {
@@ -1358,28 +1691,38 @@ struct Evolutionary
             }
             if(root == -1)
                 continue;
-            vector<double> dist(n, DBL_MAX);
+            vector<vector<double>> dist(n, vector<double>(n, DBL_MAX));
             vector<int> uEdge(n, -1);
-            int cur = reservoir[root];
-            dist[cur] = 0.0;
+            int rootId = reservoir[root];
+            cur = reservoir[root];
             priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
-            pq.push(mp(dist[cur], cur));
+            dist[rootId][cur] = 0.0;
+            pq.push(mp(dist[rootId][cur], cur));
+            cnt = 0;
+            double w;
             while(pq.size())
             {
                 cur = pq.top().second;
+                w = pq.top().first;
                 pq.pop();
-                for(AdjInfo& ainfo : adj[cur])
+                if(lt(dist[rootId][cur], w))
+                    continue;
+                cnt++;
+                assert(!selected[cur] || cur == reservoir[root]);
+                for(AdjInfo& ainfo : adjList[cur])
                 {
                     if(selected[ainfo.v])
                         continue;
-                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    if(dist[rootId][ainfo.v] > dist[rootId][cur] + ainfo.len)
                     {
-                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        dist[rootId][ainfo.v] = dist[rootId][cur] + ainfo.len;
                         uEdge[ainfo.v] = ainfo.id;
-                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                        pq.push(mp(dist[rootId][ainfo.v], ainfo.v));
                     }
                 }
             }
+            if(cnt < n-K+1)
+                continue;
             // construct Solution for minimum path tree from node
             Solution sol;
             Edge e;
@@ -1405,27 +1748,58 @@ struct Evolutionary
                 sol.usedEdge[e.id] = true;
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                sol.computeObjectiveFun();
                 solutions[popIdx++] = sol;
                 continue;
             }
-            
-            // for K > 2
-            /*for(int i = 0; i < K; ++i)
+            double objFun = 0.0;
+            // compute partial objective function (without the K selected nodes)
+            for(i = 0; i < n; ++i)
             {
-                printf("%d ", reservoir[i]);
+                if(!selected[i])
+                {
+                    cur = i;
+                    dist[i][cur] = 0.0;
+                    pq.push(mp(dist[i][cur], cur));
+                    while(pq.size())
+                    {
+                        cur = pq.top().second;
+                        w = pq.top().first;
+                        pq.pop();
+                        if(lt(dist[i][cur], w))
+                            continue;
+                        assert(!selected[cur] || cur == reservoir[root]);
+                        for(AdjInfo& ainfo : sol.adj[cur])
+                        {
+                            if(selected[ainfo.v])
+                                continue;
+                            if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
+                            {
+                                dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
+                                pq.push(mp(dist[i][ainfo.v], ainfo.v));
+                            }
+                        }
+                    }
+                    for(int j = i+1; j < n; ++j)
+                    {
+                        if(selected[j])
+                            continue;
+                        objFun += dist[i][j]*req[i][j];
+                    }
+                }
             }
-            putchar('\n');
-            printf("%d\n", root);*/
+
             vector<int> tmp(K-2);
             list<vector<int>> trees;
             createPruffer(tmp, trees, 0, K);
             vector<int> deg(K);
-            Solution best, aux;
-            best.objective = DBL_MAX;
+            double bestValue = DBL_MAX;
+            double tmpValue;
+            vector<vector<AdjInfo>> bestAdj;
             for(vector<int>& pruffer : trees)
             {
                 fill(deg.begin(), deg.end(), 1);
-                aux = sol;
+                vector<vector<AdjInfo>> adjTmp(K, vector<AdjInfo>());
                 for(int& node : pruffer)
                 {
                     deg[node]++;
@@ -1452,9 +1826,8 @@ struct Evolutionary
                         break;
                     }
                     e = *(it->second);
-                    aux.usedEdge[e.id] = true;
-                    aux.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-                    aux.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    adjTmp[nToK[e.u]].push_back(AdjInfo(nToK[e.v], e.len, e.id));
+                    adjTmp[nToK[e.v]].push_back(AdjInfo(nToK[e.u], e.len, e.id));
                     deg[pruffer[i]]--;
                     if(deg[pruffer[i]] == 1)
                         s.insert(pruffer[i]);
@@ -1474,23 +1847,97 @@ struct Evolutionary
                     {
                         // test this tree
                         e = *(it->second);
-                        aux.usedEdge[e.id] = true;
-                        aux.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-                        aux.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-                        aux.computeObjectiveFun();
-                        if(aux.objective < best.objective)
+                        adjTmp[nToK[e.u]].push_back(AdjInfo(nToK[e.v], e.len, e.id));
+                        adjTmp[nToK[e.v]].push_back(AdjInfo(nToK[e.u], e.len, e.id));
+                        tmpValue = objFun;
+                        vector<bool> seen(K);
+                        queue<int> q;
+                        q.push(root);
+                        // update the distance values for the K nodes
+                        while(q.size())
                         {
-                            best = aux;
+                            cur = q.front();
+                            seen[cur] = true;
+                            q.pop();
+                            for(AdjInfo& ainfo : adjTmp[cur])
+                            {
+                                if(!seen[ainfo.v])
+                                {
+                                    for(i = 0; i < n; ++i)
+                                    {
+                                        if(!selected[i])
+                                        {
+                                            dist[reservoir[ainfo.v]][i] = dist[reservoir[cur]][i] + ainfo.len;
+                                            tmpValue += dist[reservoir[ainfo.v]][i]*req[reservoir[ainfo.v]][i];
+                                        }
+                                    }
+                                    seen[ainfo.v] = true;
+                                    q.push(ainfo.v);
+                                }
+                            }
+                        }
+                        for(i = 0; i < K; ++i)
+                        {
+                            for(int j = 0; j < K; ++j)
+                            {
+                                dist[i][j] = DBL_MAX;
+                            }
+                        }
+                        for(i = 0; i < K; ++i)
+                        {
+                            dist[i][i] = 0.0;
+                            pq.push(mp(dist[i][i], i));
+                            double w;
+                            while(pq.size())
+                            {
+                                cur = pq.top().second;
+                                w = pq.top().first;
+                                pq.pop();
+                                if(lt(dist[i][cur], w))
+                                    continue;
+                                for(AdjInfo& ainfo : adjTmp[cur])
+                                {
+                                    assert(selected[reservoir[ainfo.v]]);
+                                    if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
+                                    {
+                                        dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
+                                        pq.push(mp(dist[i][ainfo.v], ainfo.v));
+                                    }
+                                }
+                            }
+                            for(int j = 1; j < K; ++j)
+                            {
+                                tmpValue += dist[i][j]*req[reservoir[i]][reservoir[j]];
+                            }
+                        }
+                        if(lt(tmpValue, bestValue))
+                        {
+                            bestValue = tmpValue;
+                            bestAdj = adjTmp;
                         }
                     }
                 }
             }
 
-            if(lt(best.objective, DBL_MAX))
+            if((int) bestAdj.size() == K-1)
             {
-                solutions[popIdx++] = best;
+                for(int i = 0; i < K; ++i)
+                {
+                    for(AdjInfo& ainfo : bestAdj[i])
+                    {
+                        e = edges[ainfo.id];
+                        if(sol.usedEdge[e.id] == false)
+                        {
+                            sol.usedEdge[e.id] = true;
+                            sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                            sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                        }
+                    }
+                }
+                sol.computeObjectiveFun();
+                assert(eq(sol.objective, bestValue));
+                solutions[popIdx++] = sol;
             }
-
         }
     }
 
@@ -1539,7 +1986,7 @@ int main(int argc, char* argv[])
             printf("Minimum Path Mode Selected\n");
             log << "Minimum Path\n";
         }
-        for(int seedid = 0; seedid < 10; ++seedid)
+        for(int seedid = 0; seedid < 1; ++seedid)
         {
             seed = seedVector[seedid];
             printf("seed = %u\n", seed);
