@@ -838,7 +838,7 @@ struct Evolutionary
         this->numGen = numGen;
         this->numCrossover = numCrossover;
         this->offspringSize = numCrossover+popSize;
-        this->numTour = 5*offspringSize;
+        this->numTour = 10*offspringSize;
         solutions.resize(popSize);
         fitness.resize(popSize);
         offspring.resize(offspringSize);
@@ -932,7 +932,7 @@ struct Evolutionary
             {
                 offspring[idx++] = solutions[i];
             }
-            int numMutations = offspringSize + rand()%(5*offspringSize);
+            int numMutations = numCrossover/2;
             Solution* solPtr;
             for(int i = 0; i < numMutations; ++i)
             {
