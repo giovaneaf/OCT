@@ -826,24 +826,20 @@ struct Evolutionary
     vector<Solution> solutions;
     vector<Solution> offspring;
     vector<ii> wins;
-    vector<int> parents;
     vector<double> fitness;
     int popSize;                // initial population size
-    int numPar;                 // number of parents
     int numTour;                // number of tournaments per generation
     int numGen;                 // number of generations
     int numCrossover;           // number of crossovers
     int offspringSize;  
-    Evolutionary(int popSize, int numPar, int numGen, int numCrossover)
+    Evolutionary(int popSize, int numGen, int numCrossover)
     {
         this->popSize = popSize;
-        this->numPar = numPar;
-        this->numTour = 5*numPar;
         this->numGen = numGen;
         this->numCrossover = numCrossover;
-        this->offspringSize = numCrossover+numPar;
+        this->offspringSize = numCrossover+popSize;
+        this->numTour = 5*offspringSize;
         solutions.resize(popSize);
-        parents.resize(numPar);
         fitness.resize(popSize);
         offspring.resize(offspringSize);
         wins.resize(offspringSize);
@@ -869,16 +865,14 @@ struct Evolutionary
         double maxObj, minObj;
         Solution best;
         best.objective = DBL_MAX;
-        double fitSum, parFitSum;
+        double fitSum;
         double rngDbl;
         double accVal;
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
-        while(gen <= numGen && notImproving < 50)
+        while(gen <= numGen && notImproving < 25)
         {
-            if(eq(best.objective, 5693856))
-                break;
             printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
             maxObj = 0;
@@ -903,58 +897,40 @@ struct Evolutionary
                 fitSum += fitness[i];
                 assert(leq(fitness[i], 1.2));
             }
-            // selecting numPar parents
             std::uniform_real_distribution<double> distrib(0.0, fitSum);
-            parFitSum = 0;
-            for(int i = 0; i < numPar; ++i)
-            {
-                rngDbl = distrib(rng);
-                accVal = 0.0;
-                for(int j = 0; j < popSize; ++j)
-                {
-                    if(leq(rngDbl, accVal + fitness[j]))    // solution chosen
-                    {
-                        parents[i] = j;
-                        break;
-                    }
-                    accVal += fitness[j];
-                }
-                parFitSum += fitness[parents[i]];
-            }
-            std::uniform_real_distribution<double> parDistrib(0.0, parFitSum);
             // Crossover between parents
             int id1, id2;
             for(int i = 0; i < numCrossover; ++i)
             {
-                id1 = id2 = numPar-1;
-                rngDbl = parDistrib(rng);
+                id1 = id2 = popSize-1;
+                rngDbl = distrib(rng);
                 accVal = 0.0;
-                for(int j = 0; j < numPar; ++j)
+                for(int j = 0; j < popSize; ++j)
                 {
-                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
+                    if(leq(rngDbl, accVal + fitness[j]))    // parent chosen
                     {
                         id1 = j;
                         break;
                     }
-                    accVal += fitness[parents[j]];
+                    accVal += fitness[j];
                 }
-                rngDbl = parDistrib(rng);
+                rngDbl = distrib(rng);
                 accVal = 0.0;
-                for(int j = 0; j < numPar; ++j)
+                 for(int j = 0; j < popSize; ++j)
                 {
-                    if(leq(rngDbl, accVal + fitness[parents[j]]))    // parent chosen
+                    if(leq(rngDbl, accVal + fitness[j]))    // parent chosen
                     {
                         id2 = j;
                         break;
                     }
-                    accVal += fitness[parents[j]];
+                    accVal += fitness[j];
                 }
-                offspring[i] = crossover(solutions[parents[id1]], solutions[parents[id2]]);
+                offspring[i] = crossover(solutions[id1], solutions[id2]);
             }
             int idx = numCrossover;
-            for(int i = 0; i < numPar; ++i)
+            for(int i = 0; i < popSize; ++i)
             {
-                offspring[idx++] = solutions[parents[i]];
+                offspring[idx++] = solutions[i];
             }
             int numMutations = offspringSize + rand()%(5*offspringSize);
             Solution* solPtr;
@@ -1055,7 +1031,7 @@ struct Evolutionary
     {
         int i, rdInt;
         int best;
-        int K = 2 + rand()%(numPar/3);;
+        int K = 2 + rand()%(popSize/10);;
         double p, curP, rdDbl;
         p = 0.9;
         vector<int> reservoir(K);
@@ -1522,9 +1498,9 @@ struct Evolutionary
 
 int main(int argc, char* argv[])
 {
-    if(argc != 5)
+    if(argc != 4)
     {
-        printf("usage: ./evolutionary popSize numParents numGen numCrossovers < inputFile\n");
+        printf("usage: ./evolutionary popSize numGen numCrossovers < inputFile\n");
         return -1;
     }
     cin >> n >> m;
@@ -1570,7 +1546,7 @@ int main(int argc, char* argv[])
             //Initialize seeds
             srand(seed);
             rng.seed(seed);
-            Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
+            Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
             chrono::steady_clock::time_point begin, end;
             begin = chrono::steady_clock::now();
             Solution best = ev.run();
