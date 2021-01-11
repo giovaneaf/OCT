@@ -128,6 +128,16 @@ struct Solution
         objective = 0;
     }
     
+    void clear()
+    {
+        for(int i = 0; i < n; ++i)
+        {
+            adj[i].clear();
+        }
+        fill(usedEdge.begin(), usedEdge.end(), false);
+        objective = 0;
+    }
+
     /* Input: Adjacency list of the tree
 	   Output: Objective function value */
     void computeObjectiveFun()
@@ -826,7 +836,7 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     assert(cnt == n-1);
 }
 
-void buildPTASSOlution(vector<Edge>& edge, Solution& sol)
+void buildPTASSolution(vector<Edge>& edge, Solution& sol)
 {
     // generate adjacency list
     vector<AdjInfo> adj[n];
@@ -931,6 +941,7 @@ void buildPTASSOlution(vector<Edge>& edge, Solution& sol)
             if(it == edgeMap.end())
             {
                 // invalid tree
+                sol.clear();
                 continue;
             }
             e = *(it->second);
@@ -1121,8 +1132,12 @@ void buildPTASSOlution(vector<Edge>& edge, Solution& sol)
                     }
                 }
             }
+            sol.computeObjectiveFun();
+            assert(eq(sol.objective, bestValue));
             break;
         }
+        else
+            sol.clear();
     }
 }
 
@@ -1332,7 +1347,7 @@ struct Evolutionary
             else
             {
                 // Calling PTAS crossover
-                buildMinPathSolution(avEdges, sol);
+                buildPTASSolution(avEdges, sol);
                 sol.computeObjectiveFun();
             }
         }
@@ -1637,6 +1652,8 @@ struct Evolutionary
 
     void genPTASPop()
     {
+        printf("PTAS pop\n");
+
         adjList.assign(n, vector<AdjInfo>());
         for(Edge& e : edges)
         {
@@ -1935,7 +1952,7 @@ struct Evolutionary
                     }
                 }
                 sol.computeObjectiveFun();
-                assert(eq(sol.objective, bestValue));
+                assert(eq(sol.objective, bestValue));   // ensure value is correct
                 solutions[popIdx++] = sol;
             }
         }
@@ -1986,7 +2003,12 @@ int main(int argc, char* argv[])
             printf("Minimum Path Mode Selected\n");
             log << "Minimum Path\n";
         }
-        for(int seedid = 0; seedid < 1; ++seedid)
+        else
+        {
+            printf("PTAS Mode Selected\n");
+            log << "PTAS\n";
+        }
+        for(int seedid = 0; seedid < 10; ++seedid)
         {
             seed = seedVector[seedid];
             printf("seed = %u\n", seed);
