@@ -875,8 +875,10 @@ struct Evolutionary
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
-        while(gen <= numGen && notImproving < 25)
+        while(gen <= numGen && notImproving < 50)
         {
+            if(eq(best.objective, 5693856))
+                break;
             printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
             maxObj = 0;
@@ -954,7 +956,7 @@ struct Evolutionary
             {
                 offspring[idx++] = solutions[parents[i]];
             }
-            int numMutations = offspringSize + rand()%(3*offspringSize);
+            int numMutations = offspringSize + rand()%(5*offspringSize);
             Solution* solPtr;
             for(int i = 0; i < numMutations; ++i)
             {
@@ -1544,7 +1546,7 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 2; mode >= 1; mode--)
+    for(mode = 2; mode >= 2; mode--)
     {
         if(mode == 0)
         {
