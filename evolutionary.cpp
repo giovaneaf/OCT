@@ -674,15 +674,23 @@ void buildRandomSolution(vector<Edge>& edge, Solution& sol)
         adj[edge[i].v].push_back(i);
     }
     // randomly sort the edges
+    set<int> nodes;
+    set<int>::iterator it;
     for(int i = 0; i < n; ++i)
     {
         shuffle(begin(adj[i]), end(adj[i]), default_random_engine(seed));
+        nodes.insert(i);
     }
     int cur = 0;
     int nEdges = 0;
     Edge e;
+    
     while(nEdges < n-1)
     {
+        it = nodes.lower_bound(cur);
+        if(it == nodes.end())
+            it = nodes.begin();
+        cur = *it;
         if(idxEdge[cur] < (int) adj[cur].size())    // has edge to test
         {
             e = edge[adj[cur][idxEdge[cur]]];
@@ -696,7 +704,11 @@ void buildRandomSolution(vector<Edge>& edge, Solution& sol)
             }
             idxEdge[cur]++;
         }
-        cur = ((cur == n-1) ? 0 : cur+1);
+        else
+        {
+            s.erase(cur);
+        }
+        cur++;
     }
 }
 
@@ -1983,7 +1995,7 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 2; mode >= 1; mode--)
+    for(mode = 1; mode >= 0; mode--)
     {
         if(mode == 0)
         {
