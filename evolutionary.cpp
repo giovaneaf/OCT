@@ -76,6 +76,7 @@ unsigned seedVector[] = {280192806, 871237442, 2540188929, 107472404, 3957311442
 //Mersenne Twister: Good quality random number generator
 std::mt19937 rng;
 map<ii, Edge*> edgeMap;
+map<int, list<vector<int>>> prufferCodes;
 
 // Return the neighbor of node u for a given edge
 inline int getNeighbor(int u, Edge& e)
@@ -987,9 +988,7 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
             }
         }
 
-        vector<int> tmp(K-2);
-        list<vector<int>> trees;
-        createPruffer(tmp, trees, 0, K);
+        list<vector<int>> trees = prufferCodes[K];
         vector<int> deg(K);
         double bestValue = DBL_MAX;
         double tmpValue;
@@ -1806,9 +1805,7 @@ struct Evolutionary
                 }
             }
 
-            vector<int> tmp(K-2);
-            list<vector<int>> trees;
-            createPruffer(tmp, trees, 0, K);
+            list<vector<int>> trees = prufferCodes[K];
             vector<int> deg(K);
             double bestValue = DBL_MAX;
             double tmpValue;
@@ -1986,7 +1983,7 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 2; mode >= 2; mode--)
+    for(mode = 2; mode >= 1; mode--)
     {
         if(mode == 0)
         {
@@ -2007,6 +2004,13 @@ int main(int argc, char* argv[])
         {
             printf("PTAS Mode Selected\n");
             log << "PTAS\n";
+            for(int k = 3; k <= 5; k++)
+            {
+                list<vector<int>> lst;
+                vector<int> tmp(k-2);
+                createPruffer(tmp, lst, 0, k);
+                prufferCodes[k] = lst;
+            }
         }
         for(int seedid = 0; seedid < 10; ++seedid)
         {
