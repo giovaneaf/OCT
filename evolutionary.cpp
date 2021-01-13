@@ -337,17 +337,6 @@ struct Solution
                     q.push(ainfo.v);
                 }
             }
-            int cnt = 0;
-            for(int i = 0; i < m; ++i)
-            {
-                // XOR is used to ensure the edge is connecting the two disconnected sets A and B
-                if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
-                {
-                    cnt++;
-                }
-            }
-            if(cnt >= 1100)
-                continue;
             // remove chosen edge
             this->removeEdge(edge);
             // Find the best edge to add when removing the chosen edge
@@ -355,11 +344,13 @@ struct Solution
             int addEdge;
             minObj = curObj = this->objective;
             addEdge = rdInt;
+            int cnt = 0;
             for(int i = 0; i < m; ++i)
             {
                 // XOR is used to ensure the edge is connecting the two disconnected sets A and B
                 if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
                 {
+                    cnt++;
                     curNode = edges[i].u;
                     list<int> nodesToUpdate;
                     for(int j = 0; j < n; ++j)
@@ -400,6 +391,8 @@ struct Solution
                         minObj = curObj;
                         addEdge = i;
                     }
+                    if(cnt >= 1100)
+                        break;
                 }
             }
             // Insert the best edge in solution
