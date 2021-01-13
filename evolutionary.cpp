@@ -878,7 +878,7 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
     vector<bool> selected(n);
     vector<int> tmp(n);
     int K, i, cur, cnt;
-    while(true) // break means 
+    while(true) // break means found a valid solution
     {
         fill(selected.begin(), selected.end(), false);
         K = min(n-1, 2 + rand()%4);
@@ -901,57 +901,42 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
         }
         if(i < K)     // invalid set
             continue;
-        shuffle(reservoir.begin(), reservoir.begin()+K, default_random_engine(seed));
         for(i = 0; i < K; ++i)
         {
             nToK[reservoir[i]] = i;
         }
-        int root = -1;
+        vector<double> dist(n, DBL_MAX);
+        vector<int> uEdge(n, -1);
+        vector<int> superNode(n, -1);
+        priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+        // multi-source Dijsktra
         for(i = 0; i < K; ++i)
         {
-            for(AdjInfo& ainfo : adjList[reservoir[i]])
-            {
-                if(!selected[ainfo.v])
-                {
-                    root = i;
-                    break;
-                }
-            }
+            dist[reservoir[i]] = 0.0;
+            pq.push(mp(0.0, reservoir[i]));
+            superNode[reservoir[i]] = i;
         }
-        if(root == -1)
-            continue;
-        vector<vector<double>> dist(n, vector<double>(n, DBL_MAX));
-        vector<int> uEdge(n, -1);
-        int rootId = reservoir[root];
-        cur = reservoir[root];
-        priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
-        dist[rootId][cur] = 0.0;
-        pq.push(mp(dist[rootId][cur], cur));
-        cnt = 0;
         double w;
         while(pq.size())
         {
             cur = pq.top().second;
             w = pq.top().first;
             pq.pop();
-            if(lt(dist[rootId][cur], w))
+            if(lt(dist[cur], w))
                 continue;
-            cnt++;
-            assert(!selected[cur] || cur == reservoir[root]);
             for(AdjInfo& ainfo : adj[cur])
             {
                 if(selected[ainfo.v])
                     continue;
-                if(dist[rootId][ainfo.v] > dist[rootId][cur] + ainfo.len)
+                if(dist[ainfo.v] > dist[cur] + ainfo.len)
                 {
-                    dist[rootId][ainfo.v] = dist[rootId][cur] + ainfo.len;
+                    dist[ainfo.v] = dist[cur] + ainfo.len;
                     uEdge[ainfo.v] = ainfo.id;
-                    pq.push(mp(dist[rootId][ainfo.v], ainfo.v));
+                    superNode[ainfo.v] = superNode[cur];
+                    pq.push(mp(dist[ainfo.v], ainfo.v));
                 }
             }
         }
-        if(cnt < n-K+1)
-            continue;
         // construct Solution for minimum path tree from node
         Edge e;
         for(int& edgeID : uEdge)
@@ -977,45 +962,20 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
             sol.usedEdge[e.id] = true;
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-            break; // found a valid solution
+            break;
         }
-        double objFun = 0.0;
-        // compute partial objective function (without the K selected nodes)
+        vector<vector<double>> sumReq(K, vector<double>(K, 0.0));
         for(i = 0; i < n; ++i)
         {
-            if(!selected[i])
+            for(int j = i+1; j < n; ++j)
             {
-                cur = i;
-                dist[i][cur] = 0.0;
-                pq.push(mp(dist[i][cur], cur));
-                while(pq.size())
-                {
-                    cur = pq.top().second;
-                    w = pq.top().first;
-                    pq.pop();
-                    if(lt(dist[i][cur], w))
-                        continue;
-                    assert(!selected[cur] || cur == reservoir[root]);
-                    for(AdjInfo& ainfo : sol.adj[cur])
-                    {
-                        if(selected[ainfo.v])
-                            continue;
-                        if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
-                        {
-                            dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
-                            pq.push(mp(dist[i][ainfo.v], ainfo.v));
-                        }
-                    }
-                }
-                for(int j = i+1; j < n; ++j)
-                {
-                    if(selected[j])
-                        continue;
-                    objFun += dist[i][j]*req[i][j];
-                }
+                if(i == j || superNode[i] == superNode[j]) 
+                    continue;
+                sumReq[superNode[i]][superNode[j]] += req[i][j];
+                sumReq[superNode[j]][superNode[i]] += req[i][j];
             }
         }
-
+        
         list<vector<int>> trees = prufferCodes[K];
         vector<int> deg(K);
         double bestValue = DBL_MAX;
@@ -1074,65 +1034,33 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                     e = *(it->second);
                     adjTmp[nToK[e.u]].push_back(AdjInfo(nToK[e.v], e.len, e.id));
                     adjTmp[nToK[e.v]].push_back(AdjInfo(nToK[e.u], e.len, e.id));
-                    tmpValue = objFun;
-                    vector<bool> seen(K);
-                    queue<int> q;
-                    q.push(root);
-                    // update the distance values for the K nodes
-                    while(q.size())
-                    {
-                        cur = q.front();
-                        seen[cur] = true;
-                        q.pop();
-                        for(AdjInfo& ainfo : adjTmp[cur])
-                        {
-                            if(!seen[ainfo.v])
-                            {
-                                for(i = 0; i < n; ++i)
-                                {
-                                    if(!selected[i])
-                                    {
-                                        dist[reservoir[ainfo.v]][i] = dist[reservoir[cur]][i] + ainfo.len;
-                                        tmpValue += dist[reservoir[ainfo.v]][i]*req[reservoir[ainfo.v]][i];
-                                    }
-                                }
-                                seen[ainfo.v] = true;
-                                q.push(ainfo.v);
-                            }
-                        }
-                    }
+                    tmpValue = 0.0;
+                    vector<vector<double>> _dist(K, vector<double>(K, DBL_MAX));
                     for(i = 0; i < K; ++i)
                     {
-                        for(int j = 0; j < K; ++j)
-                        {
-                            dist[i][j] = DBL_MAX;
-                        }
-                    }
-                    for(i = 0; i < K; ++i)
-                    {
-                        dist[i][i] = 0.0;
-                        pq.push(mp(dist[i][i], i));
+                        _dist[i][i] = 0.0;
+                        pq.push(mp(_dist[i][i], i));
                         double w;
                         while(pq.size())
                         {
                             cur = pq.top().second;
                             w = pq.top().first;
                             pq.pop();
-                            if(lt(dist[i][cur], w))
+                            if(lt(_dist[i][cur], w))
                                 continue;
                             for(AdjInfo& ainfo : adjTmp[cur])
                             {
                                 assert(selected[reservoir[ainfo.v]]);
-                                if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
+                                if(_dist[i][ainfo.v] > _dist[i][cur] + ainfo.len)
                                 {
-                                    dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
-                                    pq.push(mp(dist[i][ainfo.v], ainfo.v));
+                                    _dist[i][ainfo.v] = _dist[i][cur] + ainfo.len;
+                                    pq.push(mp(_dist[i][ainfo.v], ainfo.v));
                                 }
                             }
                         }
                         for(int j = 1; j < K; ++j)
                         {
-                            tmpValue += dist[i][j]*req[reservoir[i]][reservoir[j]];
+                            tmpValue += _dist[i][j]*sumReq[i][j];
                         }
                     }
                     if(lt(tmpValue, bestValue))
@@ -1144,7 +1072,7 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
             }
         }
 
-        if((int) bestAdj.size() == K-1) // found a valid solution
+        if((int) bestAdj.size() == K-1)
         {
             for(int i = 0; i < K; ++i)
             {
@@ -1159,12 +1087,12 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                     }
                 }
             }
-            sol.computeObjectiveFun();
-            assert(eq(sol.objective, bestValue));
             break;
         }
         else
+        {
             sol.clear();
+        }
     }
 }
 
@@ -1180,13 +1108,15 @@ struct Evolutionary
     int numGen;                 // number of generations
     int numCrossover;           // number of crossovers
     int offspringSize;  
-    Evolutionary(int popSize, int numGen, int numCrossover)
+    int numMutations;
+    Evolutionary(int popSize, int numGen, int numCrossover, int numMutations)
     {
         this->popSize = popSize;
         this->numGen = numGen;
         this->numCrossover = numCrossover;
         this->offspringSize = numCrossover+popSize;
         this->numTour = 10*offspringSize;
+        this->numMutations = numMutations;
         solutions.resize(popSize);
         fitness.resize(popSize);
         offspring.resize(offspringSize);
@@ -1280,7 +1210,6 @@ struct Evolutionary
             {
                 offspring[idx++] = solutions[i];
             }
-            int numMutations = 20;
             Solution* solPtr;
             for(int i = 0; i < numMutations; ++i)
             {
@@ -1716,57 +1645,42 @@ struct Evolutionary
             }
             if(i < K)     // invalid set
                 continue;
-            shuffle(reservoir.begin(), reservoir.begin()+K, default_random_engine(seed));
             for(i = 0; i < K; ++i)
             {
                 nToK[reservoir[i]] = i;
             }
-            int root = -1;
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            vector<int> superNode(n, -1);
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            // multi-source Dijsktra
             for(i = 0; i < K; ++i)
             {
-                for(AdjInfo& ainfo : adjList[reservoir[i]])
-                {
-                    if(!selected[ainfo.v])
-                    {
-                        root = i;
-                        break;
-                    }
-                }
+                dist[reservoir[i]] = 0.0;
+                pq.push(mp(0.0, reservoir[i]));
+                superNode[reservoir[i]] = i;
             }
-            if(root == -1)
-                continue;
-            vector<vector<double>> dist(n, vector<double>(n, DBL_MAX));
-            vector<int> uEdge(n, -1);
-            int rootId = reservoir[root];
-            cur = reservoir[root];
-            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
-            dist[rootId][cur] = 0.0;
-            pq.push(mp(dist[rootId][cur], cur));
-            cnt = 0;
             double w;
             while(pq.size())
             {
                 cur = pq.top().second;
                 w = pq.top().first;
                 pq.pop();
-                if(lt(dist[rootId][cur], w))
+                if(lt(dist[cur], w))
                     continue;
-                cnt++;
-                assert(!selected[cur] || cur == reservoir[root]);
                 for(AdjInfo& ainfo : adjList[cur])
                 {
                     if(selected[ainfo.v])
                         continue;
-                    if(dist[rootId][ainfo.v] > dist[rootId][cur] + ainfo.len)
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
                     {
-                        dist[rootId][ainfo.v] = dist[rootId][cur] + ainfo.len;
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
                         uEdge[ainfo.v] = ainfo.id;
-                        pq.push(mp(dist[rootId][ainfo.v], ainfo.v));
+                        superNode[ainfo.v] = superNode[cur];
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
                     }
                 }
             }
-            if(cnt < n-K+1)
-                continue;
             // construct Solution for minimum path tree from node
             Solution sol;
             Edge e;
@@ -1796,43 +1710,18 @@ struct Evolutionary
                 solutions[popIdx++] = sol;
                 continue;
             }
-            double objFun = 0.0;
-            // compute partial objective function (without the K selected nodes)
+            vector<vector<double>> sumReq(K, vector<double>(K, 0.0));
             for(i = 0; i < n; ++i)
             {
-                if(!selected[i])
+                for(int j = i+1; j < n; ++j)
                 {
-                    cur = i;
-                    dist[i][cur] = 0.0;
-                    pq.push(mp(dist[i][cur], cur));
-                    while(pq.size())
-                    {
-                        cur = pq.top().second;
-                        w = pq.top().first;
-                        pq.pop();
-                        if(lt(dist[i][cur], w))
-                            continue;
-                        assert(!selected[cur] || cur == reservoir[root]);
-                        for(AdjInfo& ainfo : sol.adj[cur])
-                        {
-                            if(selected[ainfo.v])
-                                continue;
-                            if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
-                            {
-                                dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
-                                pq.push(mp(dist[i][ainfo.v], ainfo.v));
-                            }
-                        }
-                    }
-                    for(int j = i+1; j < n; ++j)
-                    {
-                        if(selected[j])
-                            continue;
-                        objFun += dist[i][j]*req[i][j];
-                    }
+                    if(i == j || superNode[i] == superNode[j]) 
+                        continue;
+                    sumReq[superNode[i]][superNode[j]] += req[i][j];
+                    sumReq[superNode[j]][superNode[i]] += req[i][j];
                 }
             }
-
+            
             list<vector<int>> trees = prufferCodes[K];
             vector<int> deg(K);
             double bestValue = DBL_MAX;
@@ -1891,65 +1780,33 @@ struct Evolutionary
                         e = *(it->second);
                         adjTmp[nToK[e.u]].push_back(AdjInfo(nToK[e.v], e.len, e.id));
                         adjTmp[nToK[e.v]].push_back(AdjInfo(nToK[e.u], e.len, e.id));
-                        tmpValue = objFun;
-                        vector<bool> seen(K);
-                        queue<int> q;
-                        q.push(root);
-                        // update the distance values for the K nodes
-                        while(q.size())
-                        {
-                            cur = q.front();
-                            seen[cur] = true;
-                            q.pop();
-                            for(AdjInfo& ainfo : adjTmp[cur])
-                            {
-                                if(!seen[ainfo.v])
-                                {
-                                    for(i = 0; i < n; ++i)
-                                    {
-                                        if(!selected[i])
-                                        {
-                                            dist[reservoir[ainfo.v]][i] = dist[reservoir[cur]][i] + ainfo.len;
-                                            tmpValue += dist[reservoir[ainfo.v]][i]*req[reservoir[ainfo.v]][i];
-                                        }
-                                    }
-                                    seen[ainfo.v] = true;
-                                    q.push(ainfo.v);
-                                }
-                            }
-                        }
+                        tmpValue = 0.0;
+                        vector<vector<double>> _dist(K, vector<double>(K, DBL_MAX));
                         for(i = 0; i < K; ++i)
                         {
-                            for(int j = 0; j < K; ++j)
-                            {
-                                dist[i][j] = DBL_MAX;
-                            }
-                        }
-                        for(i = 0; i < K; ++i)
-                        {
-                            dist[i][i] = 0.0;
-                            pq.push(mp(dist[i][i], i));
+                            _dist[i][i] = 0.0;
+                            pq.push(mp(_dist[i][i], i));
                             double w;
                             while(pq.size())
                             {
                                 cur = pq.top().second;
                                 w = pq.top().first;
                                 pq.pop();
-                                if(lt(dist[i][cur], w))
+                                if(lt(_dist[i][cur], w))
                                     continue;
                                 for(AdjInfo& ainfo : adjTmp[cur])
                                 {
                                     assert(selected[reservoir[ainfo.v]]);
-                                    if(dist[i][ainfo.v] > dist[i][cur] + ainfo.len)
+                                    if(_dist[i][ainfo.v] > _dist[i][cur] + ainfo.len)
                                     {
-                                        dist[i][ainfo.v] = dist[i][cur] + ainfo.len;
-                                        pq.push(mp(dist[i][ainfo.v], ainfo.v));
+                                        _dist[i][ainfo.v] = _dist[i][cur] + ainfo.len;
+                                        pq.push(mp(_dist[i][ainfo.v], ainfo.v));
                                     }
                                 }
                             }
                             for(int j = 1; j < K; ++j)
                             {
-                                tmpValue += dist[i][j]*req[reservoir[i]][reservoir[j]];
+                                tmpValue += _dist[i][j]*sumReq[i][j];
                             }
                         }
                         if(lt(tmpValue, bestValue))
@@ -1977,7 +1834,7 @@ struct Evolutionary
                     }
                 }
                 sol.computeObjectiveFun();
-                assert(eq(sol.objective, bestValue));   // ensure value is correct
+                assert(lt(0, sol.objective) && lt(sol.objective, DBL_MAX));   // ensure value is correct
                 solutions[popIdx++] = sol;
             }
         }
@@ -1987,9 +1844,9 @@ struct Evolutionary
 
 int main(int argc, char* argv[])
 {
-    if(argc != 4)
+    if(argc != 5)
     {
-        printf("usage: ./evolutionary popSize numGen numCrossovers < inputFile\n");
+        printf("usage: ./evolutionary popSize numGen numCrossovers numMutations < inputFile\n");
         return -1;
     }
     cin >> n >> m;
@@ -2047,7 +1904,7 @@ int main(int argc, char* argv[])
             //Initialize seeds
             srand(seed);
             rng.seed(seed);
-            Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
+            Evolutionary ev(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
             chrono::steady_clock::time_point begin, end;
             begin = chrono::steady_clock::now();
             Solution best = ev.run();
