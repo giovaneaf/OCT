@@ -346,7 +346,7 @@ struct Solution
                     cnt++;
                 }
             }
-            if(cnt >= 1000)
+            if(cnt >= 1100)
                 continue;
             // remove chosen edge
             this->removeEdge(edge);
@@ -1280,9 +1280,7 @@ struct Evolutionary
             {
                 offspring[idx++] = solutions[i];
             }
-            int numMutations = numCrossover/2;
-            chrono::steady_clock::time_point begin, end;
-            begin = chrono::steady_clock::now();
+            int numMutations = 20;
             Solution* solPtr;
             for(int i = 0; i < numMutations; ++i)
             {
@@ -1301,8 +1299,6 @@ struct Evolutionary
                     best = *solPtr;
                 }
             }
-            end = chrono::steady_clock::now();
-            cout << "Mutation time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << endl;
             for(int i = 0; i < offspringSize; ++i)
             {
                 wins[i] = mp(0, i);
