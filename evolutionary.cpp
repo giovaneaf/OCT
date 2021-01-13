@@ -1534,35 +1534,36 @@ struct Evolutionary
     void genGreedyProbPop()
     {
         printf("MST-like pop\n");
-
+        double fitSum, minVal, maxVal, rngDbl, accVal, totFitSum;
+        minVal = DBL_MAX;
+        maxVal = 0;
+        int solSize;
+        for(int j = 0; j < m; ++j)
+        {
+            minVal = min(minVal, edges[j].len);
+            maxVal = max(maxVal, edges[j].len);
+        }
+        // create fitness for each edge
+        vector<double> fitness(m);
+        totFitSum = 0.0;
+        for(int j = 0; j < m; ++j)
+        {
+            if(eq(minVal, maxVal))
+                fitness[j] = 1.0;
+            else
+                fitness[j] = 1.0 - ((edges[j].len - minVal)/(maxVal - minVal)) + 0.4;
+            totFitSum += fitness[j];
+            assert(leq(fitness[j], 1.4));
+        }
         for(int i = 0; i < popSize; ++i)
         {
             UnionFind uf(n);
-            double fitSum, minVal, maxVal, rngDbl, accVal;
-            minVal = DBL_MAX;
-            maxVal = 0;
-            int solSize = 0;
-            for(int j = 0; j < m; ++j)
-            {
-                minVal = min(minVal, edges[j].len);
-                maxVal = max(maxVal, edges[j].len);
-            }
-            // create fitness for each edge
-            vector<double> fitness(m);
             vb unavEdge(m, false);
-            fitSum = 0.0;
-            for(int j = 0; j < m; ++j)
-            {
-                if(eq(minVal, maxVal))
-                    fitness[j] = 1.0;
-                else
-                    fitness[j] = 1.0 - ((edges[j].len - minVal)/(maxVal - minVal)) + 0.4;
-                fitSum += fitness[j];
-                assert(leq(fitness[j], 1.4));
-            }
             int chosen;
             Edge e;
             Solution sol;
+            solSize = 0;
+            fitSum = totFitSum;
             while(solSize < n-1)    // while solution isn't a tree
             {
                 std::uniform_real_distribution<double> distrib(0.0, fitSum);
