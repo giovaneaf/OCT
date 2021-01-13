@@ -311,127 +311,143 @@ struct Solution
                 possibleEdges[idx++] = i;
             }
         }
-        int rdInt = possibleEdges[rand()%((int) possibleEdges.size())];
-        Edge edge = edges[rdInt];
-        // remove chosen edge
-        this->removeEdge(edge);
-        // find nodes in one set when removing the chosen edge
-        vi inA(n, 0);
-        queue<int> q;
-        q.push(edge.u);
-        int curNode;
-        int szA = 0;
-        while(q.size())
+        while(true)
         {
-            curNode = q.front();
-            inA[curNode] = 1;
-            szA++;
-            q.pop();
-            for(AdjInfo& ainfo: this->adj[curNode])
+            int rdInt = possibleEdges[rand()%((int) possibleEdges.size())];
+            Edge edge = edges[rdInt];
+            // find nodes in one set when removing the chosen edge
+            vi inA(n, 0);
+            queue<int> q;
+            q.push(edge.u);
+            int curNode;
+            int szA = 0;
+            while(q.size())
             {
-                assert(ainfo.id != edge.id); // assert edge was removed
-                if(inA[ainfo.v])
-                    continue;
-                inA[ainfo.v] = 1;
-                q.push(ainfo.v);
-            }
-        }
-        // Find the best edge to add when removing the chosen edge
-        double minObj, curObj;
-        int addEdge;
-        minObj = curObj = this->objective;
-        addEdge = rdInt;
-        for(int i = 0; i < m; ++i)
-        {
-            // XOR is used to ensure the edge is connecting the two disconnected sets A and B
-            if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
-            {
-                curNode = edges[i].u;
-                list<int> nodesToUpdate;
-                for(int j = 0; j < n; ++j)
+                curNode = q.front();
+                inA[curNode] = 1;
+                szA++;
+                q.pop();
+                for(AdjInfo& ainfo: this->adj[curNode])
                 {
-                    if(inA[curNode]^inA[j]) // need to be updated
+                    if(ainfo.id == edge.id)
+                        continue;
+                    if(inA[ainfo.v])
+                        continue;
+                    inA[ainfo.v] = 1;
+                    q.push(ainfo.v);
+                }
+            }
+            int cnt = 0;
+            for(int i = 0; i < m; ++i)
+            {
+                // XOR is used to ensure the edge is connecting the two disconnected sets A and B
+                if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
+                {
+                    cnt++;
+                }
+            }
+            if(cnt >= 1000)
+                continue;
+            // remove chosen edge
+            this->removeEdge(edge);
+            // Find the best edge to add when removing the chosen edge
+            double minObj, curObj;
+            int addEdge;
+            minObj = curObj = this->objective;
+            addEdge = rdInt;
+            for(int i = 0; i < m; ++i)
+            {
+                // XOR is used to ensure the edge is connecting the two disconnected sets A and B
+                if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
+                {
+                    curNode = edges[i].u;
+                    list<int> nodesToUpdate;
+                    for(int j = 0; j < n; ++j)
                     {
-                        curObj -= this->dist[curNode][j]*req[curNode][j];
-                        this->dist[curNode][j] = this->dist[j][curNode] = edges[i].len + this->dist[edges[i].v][j];
-                        curObj += this->dist[curNode][j]*req[curNode][j];
-                        nodesToUpdate.push_back(j);
+                        if(inA[curNode]^inA[j]) // need to be updated
+                        {
+                            curObj -= this->dist[curNode][j]*req[curNode][j];
+                            this->dist[curNode][j] = this->dist[j][curNode] = edges[i].len + this->dist[edges[i].v][j];
+                            curObj += this->dist[curNode][j]*req[curNode][j];
+                            nodesToUpdate.push_back(j);
+                        }
+                    }
+                    vb seen(n, false);
+                    q.push(curNode);
+                    // update the distance values from one set to the other
+                    while(q.size())
+                    {
+                        curNode = q.front();
+                        seen[curNode] = true;
+                        q.pop();
+                        for(AdjInfo& ainfo: this->adj[curNode])
+                        {
+                            if(seen[ainfo.v])
+                                continue;
+                            assert((inA[curNode]^inA[ainfo.v]) == 0);
+                            q.push(ainfo.v);
+                            seen[ainfo.v] = true;
+                            for(int& j : nodesToUpdate)
+                            {
+                                curObj -= this->dist[ainfo.v][j]*req[ainfo.v][j];
+                                this->dist[ainfo.v][j] = this->dist[j][ainfo.v] = ainfo.len + this->dist[curNode][j];
+                                curObj += this->dist[ainfo.v][j]*req[ainfo.v][j];
+                            }
+                        }
+                    }
+                    if(curObj < minObj)
+                    {
+                        minObj = curObj;
+                        addEdge = i;
                     }
                 }
-                vb seen(n, false);
-                q.push(curNode);
-                // update the distance values from one set to the other
-                while(q.size())
+            }
+            // Insert the best edge in solution
+            Edge bestEdge = edges[addEdge];
+            this->usedEdge[addEdge] = true;
+            this->adj[bestEdge.u].push_back(AdjInfo(bestEdge.v, bestEdge.len, bestEdge.id));
+            this->adj[bestEdge.v].push_back(AdjInfo(bestEdge.u, bestEdge.len, bestEdge.id));
+            // update solution objective function and distances
+            this->objective = minObj;
+            assert(inA[bestEdge.u]^inA[bestEdge.v]); // assert that the edge form a tree
+            curNode = bestEdge.u;
+            int neighbor = getNeighbor(curNode, bestEdge);
+            for(int i = 0; i < n; ++i)
+            {
+                if(inA[curNode]^inA[i]) // if the values are updated by the edge
+                    this->dist[curNode][i] = this->dist[i][curNode] = bestEdge.len + this->dist[neighbor][i];
+            }
+            vb seen(n, false);
+            q.push(curNode);
+            while(q.size())
+            {
+                curNode = q.front();
+                seen[curNode] = true;
+                q.pop();
+                for(AdjInfo& ainfo: this->adj[curNode])
                 {
-                    curNode = q.front();
-                    seen[curNode] = true;
-                    q.pop();
-                    for(AdjInfo& ainfo: this->adj[curNode])
+                    if(seen[ainfo.v] || (inA[curNode]^inA[ainfo.v]))
+                        continue;
+                    assert((inA[curNode]^inA[ainfo.v]) == 0);
+                    q.push(ainfo.v);
+                    seen[ainfo.v] = true;
+                    for(int i = 0; i < n; ++i)
                     {
-                        if(seen[ainfo.v])
-                            continue;
-                        assert((inA[curNode]^inA[ainfo.v]) == 0);
-                        q.push(ainfo.v);
-                        seen[ainfo.v] = true;
-                        for(int& j : nodesToUpdate)
+                        if(inA[curNode]^inA[i])
                         {
-                            curObj -= this->dist[ainfo.v][j]*req[ainfo.v][j];
-                            this->dist[ainfo.v][j] = this->dist[j][ainfo.v] = ainfo.len + this->dist[curNode][j];
-                            curObj += this->dist[ainfo.v][j]*req[ainfo.v][j];
+                            this->dist[ainfo.v][i] = this->dist[i][ainfo.v] = ainfo.len + this->dist[curNode][i];
                         }
                     }
                 }
-                if(curObj < minObj)
-                {
-                    minObj = curObj;
-                    addEdge = i;
-                }
             }
+            // assertion to check if distances are correctly updated
+            double tmp = 0;
+            for(int i = 0; i < n; ++i)
+                for(int j = i+1; j < n; ++j)
+                    tmp += this->dist[i][j]*req[i][j];
+            assert(eq(tmp, this->objective));
+            break;
         }
-        // Insert the best edge in solution
-        Edge bestEdge = edges[addEdge];
-        this->usedEdge[addEdge] = true;
-        this->adj[bestEdge.u].push_back(AdjInfo(bestEdge.v, bestEdge.len, bestEdge.id));
-        this->adj[bestEdge.v].push_back(AdjInfo(bestEdge.u, bestEdge.len, bestEdge.id));
-        // update solution objective function and distances
-        this->objective = minObj;
-        assert(inA[bestEdge.u]^inA[bestEdge.v]); // assert that the edge form a tree
-        curNode = bestEdge.u;
-        int neighbor = getNeighbor(curNode, bestEdge);
-        for(int i = 0; i < n; ++i)
-        {
-            if(inA[curNode]^inA[i]) // if the values are updated by the edge
-                this->dist[curNode][i] = this->dist[i][curNode] = bestEdge.len + this->dist[neighbor][i];
-        }
-        vb seen(n, false);
-        q.push(curNode);
-        while(q.size())
-        {
-            curNode = q.front();
-            seen[curNode] = true;
-            q.pop();
-            for(AdjInfo& ainfo: this->adj[curNode])
-            {
-                if(seen[ainfo.v] || (inA[curNode]^inA[ainfo.v]))
-                    continue;
-                assert((inA[curNode]^inA[ainfo.v]) == 0);
-                q.push(ainfo.v);
-                seen[ainfo.v] = true;
-                for(int i = 0; i < n; ++i)
-                {
-                    if(inA[curNode]^inA[i])
-                    {
-                        this->dist[ainfo.v][i] = this->dist[i][ainfo.v] = ainfo.len + this->dist[curNode][i];
-                    }
-                }
-            }
-        }
-        // assertion to check if distances are correctly updated
-        double tmp = 0;
-        for(int i = 0; i < n; ++i)
-            for(int j = i+1; j < n; ++j)
-                tmp += this->dist[i][j]*req[i][j];
-        assert(eq(tmp, this->objective));
     }
 
     // Removes edge from the solution (doesn't recompute anything)
@@ -1265,6 +1281,8 @@ struct Evolutionary
                 offspring[idx++] = solutions[i];
             }
             int numMutations = numCrossover/2;
+            chrono::steady_clock::time_point begin, end;
+            begin = chrono::steady_clock::now();
             Solution* solPtr;
             for(int i = 0; i < numMutations; ++i)
             {
@@ -1283,6 +1301,8 @@ struct Evolutionary
                     best = *solPtr;
                 }
             }
+            end = chrono::steady_clock::now();
+            cout << "Mutation time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << endl;
             for(int i = 0; i < offspringSize; ++i)
             {
                 wins[i] = mp(0, i);
@@ -1995,7 +2015,7 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 1; mode >= 0; mode--)
+    for(mode = 2; mode >= 0; mode--)
     {
         if(mode == 0)
         {
