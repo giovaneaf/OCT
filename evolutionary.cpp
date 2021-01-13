@@ -706,7 +706,7 @@ void buildRandomSolution(vector<Edge>& edge, Solution& sol)
         }
         else
         {
-            s.erase(cur);
+            nodes.erase(cur);
         }
         cur++;
     }
