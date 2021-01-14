@@ -400,7 +400,7 @@ struct Solution
                     minObj = curObj;
                     addEdge = i;
                 }
-                if(cnt >= 1500)
+                if(cnt >= 1005)
                     break;
             }
             // Insert the best edge in solution
