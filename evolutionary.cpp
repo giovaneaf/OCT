@@ -114,17 +114,17 @@ bool inline lt(double a, double b)
 // IMPORTANT: Assertions should be removed when testing
 
 // Stores candidate solution (tree)
+vector<vector<double>> dist;
 struct Solution
 {
     vector<vector<AdjInfo>> adj;
-    vector<vector<double>> dist;
+    //vector<vector<double>> dist;
     vb usedEdge;
     double objective;
     
     Solution()
     {
         adj.resize(n, vector<AdjInfo>());
-        dist.resize(n, vector<double>(n));
         usedEdge.resize(m, false);
         objective = 0;
     }
@@ -146,13 +146,13 @@ struct Solution
         int cur;
         for(int i = 0; i < n; ++i)
         {
-            fill(this->dist[i].begin(), this->dist[i].end(), DBL_MAX);
+            fill(dist[i].begin(), dist[i].end(), DBL_MAX);
         }
         this->objective = 0;
         // BFS for each node to compute the distances
         for(int node = 0; node < n; ++node)
         {
-            this->dist[node][node] = 0;
+            dist[node][node] = 0;
             queue<int> q;
             q.push(node);
             while(q.size())
@@ -161,16 +161,16 @@ struct Solution
                 q.pop();
                 for(AdjInfo& ainfo: this->adj[cur])
                 {
-                    if(this->dist[node][ainfo.v] == DBL_MAX)
+                    if(dist[node][ainfo.v] == DBL_MAX)
                     {
-                        this->dist[node][ainfo.v] = ainfo.len + this->dist[node][cur];
+                        dist[node][ainfo.v] = ainfo.len + dist[node][cur];
                         q.push(ainfo.v);
                     }
                 }
             }
             for(int v = node+1; v < n; v++)
             {
-                this->objective += this->dist[node][v]*req[node][v];
+                objective += dist[node][v]*req[node][v];
             }
         }
     }
@@ -178,6 +178,7 @@ struct Solution
     // Mutate when inserting a new edge in the solution - O(n^2)
     void mutateInserting()
     {
+        this->computeObjectiveFun();
         // Selecting edge to insert
         vi possibleEdges(m-(n-1));
         int idx = 0;
@@ -253,9 +254,9 @@ struct Solution
             {
                 if(!updated[i])
                 {
-                    curObj -= this->dist[curNode][i]*req[curNode][i];
-                    this->dist[curNode][i] = this->dist[i][curNode] = newEdge.len + this->dist[neighbor][i];
-                    curObj += this->dist[curNode][i]*req[curNode][i];
+                    curObj -= dist[curNode][i]*req[curNode][i];
+                    dist[curNode][i] = dist[i][curNode] = newEdge.len + dist[neighbor][i];
+                    curObj += dist[curNode][i]*req[curNode][i];
                     nodesToUpdate.push_back(i);
                 }
             }
@@ -275,9 +276,9 @@ struct Solution
                     seen[ainfo.v] = true;
                     for(int& i : nodesToUpdate)
                     {
-                        curObj -= this->dist[ainfo.v][i]*req[ainfo.v][i];
-                        this->dist[ainfo.v][i] = this->dist[i][ainfo.v] = ainfo.len + this->dist[curNode][i];
-                        curObj += this->dist[ainfo.v][i]*req[ainfo.v][i];
+                        curObj -= dist[ainfo.v][i]*req[ainfo.v][i];
+                        dist[ainfo.v][i] = dist[i][ainfo.v] = ainfo.len + dist[curNode][i];
+                        curObj += dist[ainfo.v][i]*req[ainfo.v][i];
                     }
                 }
             }
@@ -301,6 +302,7 @@ struct Solution
     // Mutate when considering to remove a random edge - O(m*n^2)
     void mutateRemoving()
     {
+        this->computeObjectiveFun();
         // selecting edge to remove
         vi possibleEdges(n-1);
         int idx = 0;
@@ -364,9 +366,9 @@ struct Solution
                 {
                     if(inA[curNode]^inA[j]) // need to be updated
                     {
-                        curObj -= this->dist[curNode][j]*req[curNode][j];
-                        this->dist[curNode][j] = this->dist[j][curNode] = edges[i].len + this->dist[edges[i].v][j];
-                        curObj += this->dist[curNode][j]*req[curNode][j];
+                        curObj -= dist[curNode][j]*req[curNode][j];
+                        dist[curNode][j] = dist[j][curNode] = edges[i].len + dist[edges[i].v][j];
+                        curObj += dist[curNode][j]*req[curNode][j];
                         nodesToUpdate.push_back(j);
                     }
                 }
@@ -387,9 +389,9 @@ struct Solution
                         seen[ainfo.v] = true;
                         for(int& j : nodesToUpdate)
                         {
-                            curObj -= this->dist[ainfo.v][j]*req[ainfo.v][j];
-                            this->dist[ainfo.v][j] = this->dist[j][ainfo.v] = ainfo.len + this->dist[curNode][j];
-                            curObj += this->dist[ainfo.v][j]*req[ainfo.v][j];
+                            curObj -= dist[ainfo.v][j]*req[ainfo.v][j];
+                            dist[ainfo.v][j] = dist[j][ainfo.v] = ainfo.len + dist[curNode][j];
+                            curObj += dist[ainfo.v][j]*req[ainfo.v][j];
                         }
                     }
                 }
@@ -414,7 +416,7 @@ struct Solution
             for(int i = 0; i < n; ++i)
             {
                 if(inA[curNode]^inA[i]) // if the values are updated by the edge
-                    this->dist[curNode][i] = this->dist[i][curNode] = bestEdge.len + this->dist[neighbor][i];
+                    dist[curNode][i] = dist[i][curNode] = bestEdge.len + dist[neighbor][i];
             }
             vb seen(n, false);
             q.push(curNode);
@@ -434,7 +436,7 @@ struct Solution
                     {
                         if(inA[curNode]^inA[i])
                         {
-                            this->dist[ainfo.v][i] = this->dist[i][ainfo.v] = ainfo.len + this->dist[curNode][i];
+                            dist[ainfo.v][i] = dist[i][ainfo.v] = ainfo.len + dist[curNode][i];
                         }
                     }
                 }
@@ -443,7 +445,7 @@ struct Solution
             double tmp = 0;
             for(int i = 0; i < n; ++i)
                 for(int j = i+1; j < n; ++j)
-                    tmp += this->dist[i][j]*req[i][j];
+                    tmp += dist[i][j]*req[i][j];
             assert(eq(tmp, this->objective));
             break;
         }
@@ -1148,21 +1150,24 @@ struct Evolutionary
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
+        Solution* tmpBest;
         while(gen <= numGen && notImproving < 25)
         {
             printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
             maxObj = 0;
             // find best solution
+            tmpBest = &best;
             for(Solution& sol : solutions)
             {
                 minObj = min(minObj, sol.objective);
                 maxObj = max(maxObj, sol.objective);
-                if(sol.objective < best.objective)      // update if solution is better
+                if(sol.objective < tmpBest->objective)      // update if solution is better
                 {
-                    best = sol;
+                    tmpBest = &sol;
                 }
             }
+            best = *tmpBest;
             // Evaluate fitness ([0, 1] interval, greater is better)
             fitSum = 0;
             for(int i = 0; i < popSize; ++i)
@@ -1210,7 +1215,7 @@ struct Evolutionary
                 offspring[idx++] = solutions[i];
             }
             Solution* solPtr;
-            Solution* tmpBest = &best;
+            tmpBest = &best;
             for(int i = 0; i < numMutations; ++i)
             {
                 solPtr = &offspring[rand()%offspringSize];
@@ -1858,6 +1863,7 @@ int main(int argc, char* argv[])
         edges[i].id = i;
     }
     //getIdxFlow.resize(n, vector<int>(2*m));
+    dist.resize(n, vector<double>(n));
     req.resize(n, vector<double>(n));
     for(int i = 0; i < n; ++i)
     {
@@ -1898,7 +1904,7 @@ int main(int argc, char* argv[])
                 prufferCodes[k] = lst;
             }
         }
-        for(int seedid = 2; seedid < 10; ++seedid)
+        for(int seedid = 0; seedid < 10; ++seedid)
         {
             seed = seedVector[seedid];
             printf("seed = %u\n", seed);
