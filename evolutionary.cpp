@@ -344,56 +344,62 @@ struct Solution
             int addEdge;
             minObj = curObj = this->objective;
             addEdge = rdInt;
-            int cnt = 0;
+            vector<int> possibleEdges;
             for(int i = 0; i < m; ++i)
             {
                 // XOR is used to ensure the edge is connecting the two disconnected sets A and B
                 if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
                 {
-                    cnt++;
-                    curNode = edges[i].u;
-                    list<int> nodesToUpdate;
-                    for(int j = 0; j < n; ++j)
+                    possibleEdges.push_back(i);
+                }            
+            }
+            shuffle(possibleEdges.begin(), possibleEdges.end(), default_random_engine(seed));
+            int cnt = 0;
+            for(int& i : possibleEdges)
+            {
+                cnt++;
+                curNode = edges[i].u;
+                list<int> nodesToUpdate;
+                for(int j = 0; j < n; ++j)
+                {
+                    if(inA[curNode]^inA[j]) // need to be updated
                     {
-                        if(inA[curNode]^inA[j]) // need to be updated
-                        {
-                            curObj -= this->dist[curNode][j]*req[curNode][j];
-                            this->dist[curNode][j] = this->dist[j][curNode] = edges[i].len + this->dist[edges[i].v][j];
-                            curObj += this->dist[curNode][j]*req[curNode][j];
-                            nodesToUpdate.push_back(j);
-                        }
+                        curObj -= this->dist[curNode][j]*req[curNode][j];
+                        this->dist[curNode][j] = this->dist[j][curNode] = edges[i].len + this->dist[edges[i].v][j];
+                        curObj += this->dist[curNode][j]*req[curNode][j];
+                        nodesToUpdate.push_back(j);
                     }
-                    vb seen(n, false);
-                    q.push(curNode);
-                    // update the distance values from one set to the other
-                    while(q.size())
-                    {
-                        curNode = q.front();
-                        seen[curNode] = true;
-                        q.pop();
-                        for(AdjInfo& ainfo: this->adj[curNode])
-                        {
-                            if(seen[ainfo.v])
-                                continue;
-                            assert((inA[curNode]^inA[ainfo.v]) == 0);
-                            q.push(ainfo.v);
-                            seen[ainfo.v] = true;
-                            for(int& j : nodesToUpdate)
-                            {
-                                curObj -= this->dist[ainfo.v][j]*req[ainfo.v][j];
-                                this->dist[ainfo.v][j] = this->dist[j][ainfo.v] = ainfo.len + this->dist[curNode][j];
-                                curObj += this->dist[ainfo.v][j]*req[ainfo.v][j];
-                            }
-                        }
-                    }
-                    if(curObj < minObj)
-                    {
-                        minObj = curObj;
-                        addEdge = i;
-                    }
-                    if(cnt >= 1100)
-                        break;
                 }
+                vb seen(n, false);
+                q.push(curNode);
+                // update the distance values from one set to the other
+                while(q.size())
+                {
+                    curNode = q.front();
+                    seen[curNode] = true;
+                    q.pop();
+                    for(AdjInfo& ainfo: this->adj[curNode])
+                    {
+                        if(seen[ainfo.v])
+                            continue;
+                        assert((inA[curNode]^inA[ainfo.v]) == 0);
+                        q.push(ainfo.v);
+                        seen[ainfo.v] = true;
+                        for(int& j : nodesToUpdate)
+                        {
+                            curObj -= this->dist[ainfo.v][j]*req[ainfo.v][j];
+                            this->dist[ainfo.v][j] = this->dist[j][ainfo.v] = ainfo.len + this->dist[curNode][j];
+                            curObj += this->dist[ainfo.v][j]*req[ainfo.v][j];
+                        }
+                    }
+                }
+                if(curObj < minObj)
+                {
+                    minObj = curObj;
+                    addEdge = i;
+                }
+                if(cnt >= 1500)
+                    break;
             }
             // Insert the best edge in solution
             Edge bestEdge = edges[addEdge];
@@ -1187,7 +1193,7 @@ struct Evolutionary
                 }
                 rngDbl = distrib(rng);
                 accVal = 0.0;
-                 for(int j = 0; j < popSize; ++j)
+                for(int j = 0; j < popSize; ++j)
                 {
                     if(leq(rngDbl, accVal + fitness[j]))    // parent chosen
                     {
@@ -1534,36 +1540,35 @@ struct Evolutionary
     void genGreedyProbPop()
     {
         printf("MST-like pop\n");
-        double fitSum, minVal, maxVal, rngDbl, accVal, totFitSum;
-        minVal = DBL_MAX;
-        maxVal = 0;
-        int solSize;
-        for(int j = 0; j < m; ++j)
-        {
-            minVal = min(minVal, edges[j].len);
-            maxVal = max(maxVal, edges[j].len);
-        }
-        // create fitness for each edge
-        vector<double> fitness(m);
-        totFitSum = 0.0;
-        for(int j = 0; j < m; ++j)
-        {
-            if(eq(minVal, maxVal))
-                fitness[j] = 1.0;
-            else
-                fitness[j] = 1.0 - ((edges[j].len - minVal)/(maxVal - minVal)) + 0.4;
-            totFitSum += fitness[j];
-            assert(leq(fitness[j], 1.4));
-        }
+
         for(int i = 0; i < popSize; ++i)
         {
             UnionFind uf(n);
+            double fitSum, minVal, maxVal, rngDbl, accVal;
+            minVal = DBL_MAX;
+            maxVal = 0;
+            int solSize = 0;
+            for(int j = 0; j < m; ++j)
+            {
+                minVal = min(minVal, edges[j].len);
+                maxVal = max(maxVal, edges[j].len);
+            }
+            // create fitness for each edge
+            vector<double> fitness(m);
             vb unavEdge(m, false);
+            fitSum = 0.0;
+            for(int j = 0; j < m; ++j)
+            {
+                if(eq(minVal, maxVal))
+                    fitness[j] = 1.0;
+                else
+                    fitness[j] = 1.0 - ((edges[j].len - minVal)/(maxVal - minVal)) + 0.4;
+                fitSum += fitness[j];
+                assert(leq(fitness[j], 1.4));
+            }
             int chosen;
             Edge e;
             Solution sol;
-            solSize = 0;
-            fitSum = totFitSum;
             while(solSize < n-1)    // while solution isn't a tree
             {
                 std::uniform_real_distribution<double> distrib(0.0, fitSum);
@@ -1862,7 +1867,7 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 2; mode >= 0; mode--)
+    for(mode = 2; mode >= 2; mode--)
     {
         if(mode == 0)
         {
@@ -1891,7 +1896,7 @@ int main(int argc, char* argv[])
                 prufferCodes[k] = lst;
             }
         }
-        for(int seedid = 0; seedid < 10; ++seedid)
+        for(int seedid = 2; seedid < 10; ++seedid)
         {
             seed = seedVector[seedid];
             printf("seed = %u\n", seed);
