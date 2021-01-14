@@ -1210,6 +1210,7 @@ struct Evolutionary
                 offspring[idx++] = solutions[i];
             }
             Solution* solPtr;
+            Solution* tmpBest = &best;
             for(int i = 0; i < numMutations; ++i)
             {
                 solPtr = &offspring[rand()%offspringSize];
@@ -1222,11 +1223,12 @@ struct Evolutionary
                 {
                     solPtr->mutateRemoving();
                 }
-                if(solPtr->objective < best.objective)      // update if solution is better
+                if(solPtr->objective < tmpBest->objective)      // update if solution is better
                 {
-                    best = *solPtr;
+                    tmpBest = solPtr;
                 }
             }
+            best = *tmpBest;
             for(int i = 0; i < offspringSize; ++i)
             {
                 wins[i] = mp(0, i);
