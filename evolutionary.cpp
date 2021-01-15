@@ -118,14 +118,14 @@ struct Solution
 {
     vector<vector<AdjInfo>> adj;
     vector<vector<double>> dist;
-    vb usedEdge;
+    //vb usedEdge;
+    set<int> usedEdges;
     double objective;
     
     Solution()
     {
         adj.resize(n, vector<AdjInfo>());
         dist.resize(n, vector<double>(n));
-        usedEdge.resize(m, false);
         objective = 0;
     }
     
@@ -135,7 +135,7 @@ struct Solution
         {
             adj[i].clear();
         }
-        fill(usedEdge.begin(), usedEdge.end(), false);
+        usedEdges.clear();
         objective = 0;
     }
 
@@ -175,6 +175,11 @@ struct Solution
         }
     }
 
+    inline bool hasEdge(int idx)
+    {
+        return usedEdges.find(idx) != usedEdges.end();
+    }
+
     // Mutate when inserting a new edge in the solution - O(n^2)
     void mutateInserting()
     {
@@ -183,7 +188,7 @@ struct Solution
         int idx = 0;
         for(int i = 0; i < m; ++i)
         {
-            if(!this->usedEdge[i])
+            if(!hasEdge(i))
             {
                 possibleEdges[idx++] = i;
             }
@@ -215,7 +220,8 @@ struct Solution
         while(q.size()) // Empty queue for later usage
             q.pop();
         // insert chosen edge in tree
-        this->usedEdge[rdInt] = true;
+        //this->usedEdge[rdInt] = true;
+        usedEdges.insert(rdInt);
         this->adj[edge.u].push_back(AdjInfo(edge.v, edge.len, edge.id));
         this->adj[edge.v].push_back(AdjInfo(edge.u, edge.len, edge.id));
         cur = edge.v;
@@ -304,13 +310,11 @@ struct Solution
         // selecting edge to remove
         vi possibleEdges(n-1);
         int idx = 0;
-        for(int i = 0; i < m; ++i)
+        for(auto it = usedEdges.begin(); it != usedEdges.end(); ++it)
         {
-            if(this->usedEdge[i])
-            {
-                possibleEdges[idx++] = i;
-            }
+            possibleEdges[idx++] = *it;
         }
+        assert(idx == n-1);
         while(true)
         {
             int rdInt = possibleEdges[rand()%((int) possibleEdges.size())];
@@ -348,7 +352,7 @@ struct Solution
             for(int i = 0; i < m; ++i)
             {
                 // XOR is used to ensure the edge is connecting the two disconnected sets A and B
-                if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
+                if(!hasEdge(i) && (inA[edges[i].u]^inA[edges[i].v]))
                 {
                     possibleEdges.push_back(i);
                 }            
@@ -403,7 +407,8 @@ struct Solution
             }
             // Insert the best edge in solution
             Edge bestEdge = edges[addEdge];
-            this->usedEdge[addEdge] = true;
+            //this->usedEdge[addEdge] = true;
+            usedEdges.insert(addEdge);
             this->adj[bestEdge.u].push_back(AdjInfo(bestEdge.v, bestEdge.len, bestEdge.id));
             this->adj[bestEdge.v].push_back(AdjInfo(bestEdge.u, bestEdge.len, bestEdge.id));
             // update solution objective function and distances
@@ -452,7 +457,8 @@ struct Solution
     // Removes edge from the solution (doesn't recompute anything)
     void removeEdge(Edge& edge)
     {
-        this->usedEdge[edge.id] = false;
+        //this->usedEdge[edge.id] = false;
+        usedEdges.erase(edge.id);
         for(auto it = this->adj[edge.u].begin(); it !=  this->adj[edge.u].end(); ++it)
         {
             if(it->id == edge.id)
@@ -491,28 +497,14 @@ void print(vector<Edge>& edges)
 void print(Solution& s)
 {
     printf("Edges used:\n");
-    for(int i = 0; i < m; ++i)
+    for(auto it = s.usedEdges.begin(); it != s.usedEdges.end(); ++it)
     {
-        if(s.usedEdge[i])
-        {
-            print(edges[i]);
-        }
+        print(edges[*it]);
     }
     putchar('\n');
     printf("Objective value = %.2f\n", s.objective);
     putchar('\n');
 }
-void print(vb& usedEdges)
-{
-    for(int i = 0; i < m; ++i)
-    {
-        if(usedEdges[i])
-        {
-            print(edges[i]);
-        }
-    }
-}
-
 
 // Variables used for solver
 /*static bool setupGurobi = true;
@@ -709,7 +701,8 @@ void buildRandomSolution(vector<Edge>& edge, Solution& sol)
             {
                 uf.unionSet(e.u, e.v);
                 nEdges++;
-                sol.usedEdge[e.id] = true;
+                //sol.usedEdge[e.id] = true;
+                sol.usedEdges.insert(e.id);
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
             }
@@ -738,7 +731,8 @@ void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
         if(fixedEdge[i])
         {
             uf.unionSet(edge[i].u, edge[i].v);
-            sol.usedEdge[edge[i].id] = true;
+            //sol.usedEdge[edge[i].id] = true;
+            sol.usedEdges.insert(edge[i].id);
             sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
             sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
             solSize++;
@@ -801,7 +795,8 @@ void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
         if(!uf.isSameSet(e.u, e.v))
         {
             uf.unionSet(e.u, e.v);
-            sol.usedEdge[e.id] = true;
+            //sol.usedEdge[e.id] = true;
+            sol.usedEdges.insert(e.id);
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
             solSize++;
@@ -850,7 +845,8 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     {
         if(edgeID > -1)
         {
-            sol.usedEdge[edgeID] = true;
+            //sol.usedEdge[edgeID] = true;
+            sol.usedEdges.insert(edgeID);
             cnt++;
             e = edges[edgeID];
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
@@ -938,7 +934,8 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
         {
             if(edgeID > -1)
             {
-                sol.usedEdge[edgeID] = true;
+                //sol.usedEdge[edgeID] = true;
+                sol.usedEdges.insert(edgeID);
                 e = edges[edgeID];
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -954,7 +951,8 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                 continue;
             }
             e = *(it->second);
-            sol.usedEdge[e.id] = true;
+            //sol.usedEdge[e.id] = true;
+            sol.usedEdges.insert(e.id);
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
             break;
@@ -1074,9 +1072,10 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                 for(AdjInfo& ainfo : bestAdj[i])
                 {
                     e = edges[ainfo.id];
-                    if(sol.usedEdge[e.id] == false)
+                    if(!sol.hasEdge(e.id))
                     {
-                        sol.usedEdge[e.id] = true;
+                        //sol.usedEdge[e.id] = true;
+                        sol.usedEdges.insert(e.id);
                         sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                         sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                     }
@@ -1258,7 +1257,28 @@ struct Evolutionary
         bool equal = true;
         vector<Edge> avEdges;
         vb fixedEdge;
-        for(int i = 0; i < m; ++i)
+        map<int, int> mm;
+        for(auto it = s1.usedEdges.begin(); it != s1.usedEdges.end(); ++it)
+        {
+            mm[*it]++;
+        }
+        for(auto it = s2.usedEdges.begin(); it != s2.usedEdges.end(); ++it)
+        {
+            mm[*it]++;
+        }
+        for(auto it = mm.begin(); it != mm.end(); ++it)
+        {
+            avEdges.push_back(edges[it->first]);
+            if(it->second == 2)
+            {
+                fixedEdge.push_back(true);
+            }
+            else
+            {
+                fixedEdge.push_back(false);
+            }
+        }
+        /*for(int i = 0; i < m; ++i)
         {
             if((!s1.usedEdge[i]) && (!s2.usedEdge[i]))
                 continue;
@@ -1273,9 +1293,9 @@ struct Evolutionary
                 equal = false;
                 fixedEdge.push_back(false);
             }         
-        }
+        }*/
         Solution sol;
-        if(equal)
+        if((int) avEdges.size() == n-1)
         {
             sol = s1;
         }
@@ -1375,7 +1395,8 @@ struct Evolutionary
                     uf.unionSet(e.u, e.v);
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-                    sol.usedEdge[e.id] = true;
+                    //sol.usedEdge[e.id] = true;
+                    sol.usedEdges.insert(e.id);
                     numForests--;
                 }
                 if(numForests == 1) // If the tree is done
@@ -1451,7 +1472,8 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    sol.usedEdge[edgeID] = true;
+                    //sol.usedEdge[edgeID] = true;
+                    sol.usedEdges.insert(edgeID);
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1471,7 +1493,7 @@ struct Evolutionary
             cur = rand()%n;
             for(int j = 0; j < m; ++j)
             {
-                if(solutions[cur].usedEdge[j])
+                if(solutions[cur].hasEdge(j))
                 {
                     if((rand()%10) == 0)    // 10% of chance to remove an used edge from the sol
                         tabu[j] = true;
@@ -1524,7 +1546,8 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    sol.usedEdge[edgeID] = true;
+                    //sol.usedEdge[edgeID] = true;
+                    sol.usedEdges.insert(edgeID);
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1532,6 +1555,7 @@ struct Evolutionary
                 }
             }
             assert(cnt == n-1);
+            sol.computeObjectiveFun();
             solutions[i] = sol;
         }  
     }
@@ -1595,7 +1619,8 @@ struct Evolutionary
                 if(!uf.isSameSet(e.u, e.v))
                 {
                     uf.unionSet(e.u, e.v);
-                    sol.usedEdge[e.id] = true;
+                    //sol.usedEdge[e.id] = true;
+                    sol.usedEdges.insert(e.id);
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                     solSize++;
@@ -1688,7 +1713,8 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    sol.usedEdge[edgeID] = true;
+                    //sol.usedEdge[edgeID] = true;
+                    sol.usedEdges.insert(edgeID);
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1703,7 +1729,8 @@ struct Evolutionary
                     continue;
                 }
                 e = *(it->second);
-                sol.usedEdge[e.id] = true;
+                //sol.usedEdge[e.id] = true;
+                sol.usedEdges.insert(e.id);
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                 sol.computeObjectiveFun();
@@ -1825,9 +1852,10 @@ struct Evolutionary
                     for(AdjInfo& ainfo : bestAdj[i])
                     {
                         e = edges[ainfo.id];
-                        if(sol.usedEdge[e.id] == false)
+                        if(!sol.hasEdge(e.id))
                         {
-                            sol.usedEdge[e.id] = true;
+                            //sol.usedEdge[e.id] = true;
+                            sol.usedEdges.insert(e.id);
                             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                         }
@@ -1897,7 +1925,7 @@ int main(int argc, char* argv[])
                 prufferCodes[k] = lst;
             }
         }
-        for(int seedid = 9; seedid < 10; ++seedid)
+        for(int seedid = 0; seedid < 10; ++seedid)
         {
             seed = seedVector[seedid];
             printf("seed = %u\n", seed);
