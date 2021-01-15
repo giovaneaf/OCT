@@ -1254,7 +1254,6 @@ struct Evolutionary
 
     Solution crossover(Solution& s1, Solution& s2)
     {
-        bool equal = true;
         vector<Edge> avEdges;
         vb fixedEdge;
         map<int, int> mm;
@@ -1896,7 +1895,7 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 2; mode >= 2; mode--)
+    for(mode = 3; mode >= 0; mode--)
     {
         if(mode == 0)
         {
@@ -1925,7 +1924,7 @@ int main(int argc, char* argv[])
                 prufferCodes[k] = lst;
             }
         }
-        for(int seedid = 0; seedid < 10; ++seedid)
+        for(int seedid = 0; seedid < 1; ++seedid)
         {
             seed = seedVector[seedid];
             printf("seed = %u\n", seed);
