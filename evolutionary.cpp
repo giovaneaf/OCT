@@ -1927,8 +1927,9 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 2; mode >= 2; mode--)
+    for(mode = 1; mode >= 1; mode--)
     {
+        if(mode == 2) continue;
         if(mode == 0)
         {
             printf("Random Mode Selected\n");
@@ -1956,7 +1957,7 @@ int main(int argc, char* argv[])
                 prufferCodes[k] = lst;
             }
         }
-        for(int seedid = 0; seedid < 10; ++seedid)
+        for(int seedid = 1; seedid < 10; ++seedid)
         {
             seed = seedVector[seedid];
             printf("seed = %u\n", seed);
