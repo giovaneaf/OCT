@@ -539,7 +539,6 @@ struct Solution
         objective = 0;
     }
 
-
     void computeObjectiveFun()
     {
         this->objective = 0;
