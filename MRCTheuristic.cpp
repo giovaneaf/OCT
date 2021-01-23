@@ -47,6 +47,7 @@ vector<vector<Level>> L;
 vector<int> nodeLevel;
 vector<int> subtreeSize;
 vector<bool> seen;
+vector<int> coreEdge;
 int lmax;
 
 inline int getNeighbor(int u, Edge& e)
@@ -115,6 +116,27 @@ struct Solution
         }
         subtreeSize[cur] = cnt;
         return cnt;
+    }
+
+    void removeEdge(Edge& edge)
+    {
+        usedEdges.erase(edge.id);
+        for(auto it = this->adj[edge.u].begin(); it !=  this->adj[edge.u].end(); ++it)
+        {
+            if(it->id == edge.id)
+            {
+                this->adj[edge.u].erase(it);
+                break;
+            }
+        }
+        for(auto it = this->adj[edge.v].begin(); it !=  this->adj[edge.v].end(); ++it)
+        {
+            if(it->id == edge.id)
+            {
+                this->adj[edge.v].erase(it);
+                break;
+            }
+        }
     }
 
 };
@@ -278,6 +300,7 @@ void Phase2(Solution& sol)
             assert(L[i][j].dIn >= L[i][j+1].dIn);
         }
     }
+    coreEdge.assign(n, -1);
     int k, l1, l2, currentNode, edgeToAdd;
     double cmpVal;
     l1 = lmax;
@@ -349,6 +372,7 @@ void Phase2(Solution& sol)
         {
             T.insert(currentNode);
             Edge* e = &edges[edgeToAdd];
+            coreEdge[currentNode] = e->id;
             sol.usedEdges.insert(e->id);
             sol.adj[e->u].push_back(AdjInfo(e->v, e->len, e->id));
             sol.adj[e->v].push_back(AdjInfo(e->u, e->len, e->id));
@@ -365,7 +389,190 @@ void Phase2(Solution& sol)
             l1--;
     }
     sol.computeObjectiveFun();
-    printf("%.10f\n", sol.objective);
+}
+
+void Phase3(Solution& sol)
+{
+    int l, g, cur, updateEdge;
+    Edge e;
+    Solution tmp;
+    Solution best = sol;
+    vector<bool> T2(n);
+    // start from level lmax
+    for(Level& lvl : L[lmax])
+    {
+        g = lvl.node;
+        // if has edge connecting to core
+        if(coreEdge[g] > -1)
+        {
+            e = edges[coreEdge[g]];
+            // consider removing this edge 
+            // that connects g to core
+            tmp = best;
+            assert(tmp.usedEdges.find(e.id) != tmp.usedEdges.end());
+            tmp.removeEdge(e);
+            // find all nodes in T2
+            fill(T2.begin(), T2.end(), true);
+            queue<int> q;
+            q.push(g);
+            // BFS for finding all nodes in T1
+            while(q.size())
+            {
+                cur = q.front();
+                q.pop();
+                T2[cur] = false;
+                for(AdjInfo& ainfo : tmp.adj[cur])
+                {
+                    if(!T2[ainfo.v])
+                        continue;
+                    T2[ainfo.v] = false;
+                    q.push(ainfo.v);
+                }
+            }
+            // update edge that connects to the core
+            updateEdge = coreEdge[g];
+            // for each adjacency list in node g
+            for(AdjInfo& ainfo : adjList[g])
+            {
+                // arc doesn't exists
+                if(n_[ainfo.v][g] == 0)
+                    continue;
+                // arc doesn't connect to the core
+                if(!T2[ainfo.v])
+                    continue;
+                // add arc to solution
+                tmp.usedEdges.insert(ainfo.id);
+                tmp.adj[g].push_back(AdjInfo(ainfo.v, ainfo.len, ainfo.id));
+                tmp.adj[ainfo.v].push_back(AdjInfo(g, ainfo.len, ainfo.id));
+                tmp.computeObjectiveFun();
+                if(lt(tmp.objective, best.objective))
+                {
+                    best = tmp;
+                    updateEdge = ainfo.id;
+                }
+                tmp.removeEdge(edges[ainfo.id]);
+            }
+            coreEdge[g] = updateEdge;
+        }
+    }
+    bool improve;
+    do
+    {
+        improve = false;
+        for(l = lmax-1; l >= 1; --l)
+        {
+            for(Level& lvl : L[l])
+            {
+                g = lvl.node;
+                assert(coreEdge[g] > -1);
+                e = edges[coreEdge[g]];
+                // consider removing this edge 
+                // that connects g to core
+                tmp = best;
+                assert(tmp.usedEdges.find(e.id) != tmp.usedEdges.end());
+                tmp.removeEdge(e);
+                // find all nodes in T2
+                fill(T2.begin(), T2.end(), true);
+                queue<int> q;
+                q.push(g);
+                // BFS for finding all nodes in T1
+                while(q.size())
+                {
+                    cur = q.front();
+                    q.pop();
+                    T2[cur] = false;
+                    for(AdjInfo& ainfo : tmp.adj[cur])
+                    {
+                        if(!T2[ainfo.v])
+                            continue;
+                        T2[ainfo.v] = false;
+                        q.push(ainfo.v);
+                    }
+                }
+                // update edge that connects to the core
+                updateEdge = coreEdge[g];
+                // for each adjacency list in node g
+                for(AdjInfo& ainfo : adjList[g])
+                {
+                    // arc doesn't exists
+                    if(n_[ainfo.v][g] == 0)
+                        continue;
+                    // arc doesn't connect to the core
+                    if(!T2[ainfo.v])
+                        continue;
+                    // add arc to solution
+                    tmp.usedEdges.insert(ainfo.id);
+                    tmp.adj[g].push_back(AdjInfo(ainfo.v, ainfo.len, ainfo.id));
+                    tmp.adj[ainfo.v].push_back(AdjInfo(g, ainfo.len, ainfo.id));
+                    tmp.computeObjectiveFun();
+                    if(lt(tmp.objective, best.objective))
+                    {
+                        best = tmp;
+                        updateEdge = ainfo.id;
+                    }
+                    tmp.removeEdge(edges[ainfo.id]);
+                }
+                coreEdge[g] = updateEdge;
+            }
+        }
+        for(l = 1; l <= lmax-1; ++l)
+        {
+            for(Level& lvl : L[l])
+            {
+                g = lvl.node;
+                assert(coreEdge[g] > -1);
+                e = edges[coreEdge[g]];
+                // consider removing this edge 
+                // that connects g to core
+                tmp = best;
+                assert(tmp.usedEdges.find(e.id) != tmp.usedEdges.end());
+                tmp.removeEdge(e);
+                // find all nodes in T2
+                fill(T2.begin(), T2.end(), true);
+                queue<int> q;
+                q.push(g);
+                // BFS for finding all nodes in T1
+                while(q.size())
+                {
+                    cur = q.front();
+                    q.pop();
+                    T2[cur] = false;
+                    for(AdjInfo& ainfo : tmp.adj[cur])
+                    {
+                        if(!T2[ainfo.v])
+                            continue;
+                        T2[ainfo.v] = false;
+                        q.push(ainfo.v);
+                    }
+                }
+                // update edge that connects to the core
+                updateEdge = coreEdge[g];
+                // for each adjacency list in node g
+                for(AdjInfo& ainfo : adjList[g])
+                {
+                    // arc doesn't exists
+                    if(n_[ainfo.v][g] == 0)
+                        continue;
+                    // arc doesn't connect to the core
+                    if(!T2[ainfo.v])
+                        continue;
+                    // add arc to solution
+                    tmp.usedEdges.insert(ainfo.id);
+                    tmp.adj[g].push_back(AdjInfo(ainfo.v, ainfo.len, ainfo.id));
+                    tmp.adj[ainfo.v].push_back(AdjInfo(g, ainfo.len, ainfo.id));
+                    tmp.computeObjectiveFun();
+                    if(lt(tmp.objective, best.objective))
+                    {
+                        best = tmp;
+                        updateEdge = ainfo.id;
+                    }
+                    tmp.removeEdge(edges[ainfo.id]);
+                }
+                coreEdge[g] = updateEdge;
+            }
+        }
+    } while (improve);
+    sol = best;
 }
 
 int main(int argc, char* argv[])
@@ -392,4 +599,8 @@ int main(int argc, char* argv[])
     Phase1();
     Solution sol;
     Phase2(sol);
+    printf("Phase 2 objective function = %.10f\n", sol.objective);
+    Phase3(sol);
+    printf("Phase 3 objective function = %.10f\n", sol.objective);
+    return 0;
 }
