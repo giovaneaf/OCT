@@ -1,5 +1,5 @@
 #include <bits/stdc++.h>
-#include <gurobi_c++.h>
+//#include <gurobi_c++.h>
 
 using namespace std;
 
@@ -7,7 +7,7 @@ using namespace std;
 #define vb vector<bool>
 #define vi vector<int>
 #define ii pair<int, int>
-#define EPS 1e-4
+#define EPS 1e-3
 
 int mode;
 
@@ -54,6 +54,7 @@ struct AdjInfo
     int id;
     AdjInfo(int v, double len, int id) : v(v), len(len), id(id) {}
 };
+
 
 /*
 The file is read in the following format
@@ -110,21 +111,21 @@ bool inline lt(double a, double b)
     return a < b && abs(a-b) > EPS;
 }
 
+// IMPORTANT: Assertions should be removed when testing
+
 // Stores candidate solution (tree)
-vector<vector<double>> dist;
-vector<int> subtreeSize;
-vector<bool> seen;
 struct Solution
 {
     vector<vector<AdjInfo>> adj;
-    //vector<vector<double>> dist;
-    //vb usedEdge;
-    set<int> usedEdges;
+    vector<vector<double>> dist;
+    vb usedEdge;
     double objective;
     
     Solution()
     {
         adj.resize(n, vector<AdjInfo>());
+        dist.resize(n, vector<double>(n));
+        usedEdge.resize(m, false);
         objective = 0;
     }
     
@@ -134,22 +135,24 @@ struct Solution
         {
             adj[i].clear();
         }
-        usedEdges.clear();
+        fill(usedEdge.begin(), usedEdge.end(), false);
         objective = 0;
     }
 
+    /* Input: Adjacency list of the tree
+	   Output: Objective function value */
     void computeObjectiveFun()
     {
         int cur;
         for(int i = 0; i < n; ++i)
         {
-            fill(dist[i].begin(), dist[i].end(), DBL_MAX);
+            fill(this->dist[i].begin(), this->dist[i].end(), DBL_MAX);
         }
         this->objective = 0;
         // BFS for each node to compute the distances
         for(int node = 0; node < n; ++node)
         {
-            dist[node][node] = 0;
+            this->dist[node][node] = 0;
             queue<int> q;
             q.push(node);
             while(q.size())
@@ -158,64 +161,29 @@ struct Solution
                 q.pop();
                 for(AdjInfo& ainfo: this->adj[cur])
                 {
-                    if(dist[node][ainfo.v] == DBL_MAX)
+                    if(this->dist[node][ainfo.v] == DBL_MAX)
                     {
-                        dist[node][ainfo.v] = ainfo.len + dist[node][cur];
+                        this->dist[node][ainfo.v] = ainfo.len + this->dist[node][cur];
                         q.push(ainfo.v);
                     }
                 }
             }
             for(int v = node+1; v < n; v++)
             {
-                objective += dist[node][v]*req[node][v];
+                this->objective += this->dist[node][v]*req[node][v];
             }
         }
-    }
-
-    void fillDist()
-    {
-        int cur;
-        for(int i = 0; i < n; ++i)
-        {
-            fill(dist[i].begin(), dist[i].end(), DBL_MAX);
-        }
-        // BFS for each node to compute the distances
-        for(int node = 0; node < n; ++node)
-        {
-            dist[node][node] = 0;
-            queue<int> q;
-            q.push(node);
-            while(q.size())
-            {
-                cur = q.front();
-                q.pop();
-                for(AdjInfo& ainfo: this->adj[cur])
-                {
-                    if(dist[node][ainfo.v] == DBL_MAX)
-                    {
-                        dist[node][ainfo.v] = ainfo.len + dist[node][cur];
-                        q.push(ainfo.v);
-                    }
-                }
-            }
-        }
-    }
-
-    inline bool hasEdge(int idx)
-    {
-        return usedEdges.find(idx) != usedEdges.end();
     }
 
     // Mutate when inserting a new edge in the solution - O(n^2)
     void mutateInserting()
     {
-        this->fillDist();
         // Selecting edge to insert
         vi possibleEdges(m-(n-1));
         int idx = 0;
         for(int i = 0; i < m; ++i)
         {
-            if(!hasEdge(i))
+            if(!this->usedEdge[i])
             {
                 possibleEdges[idx++] = i;
             }
@@ -247,7 +215,7 @@ struct Solution
         while(q.size()) // Empty queue for later usage
             q.pop();
         // insert chosen edge in tree
-        usedEdges.insert(rdInt);
+        this->usedEdge[rdInt] = true;
         this->adj[edge.u].push_back(AdjInfo(edge.v, edge.len, edge.id));
         this->adj[edge.v].push_back(AdjInfo(edge.u, edge.len, edge.id));
         cur = edge.v;
@@ -285,9 +253,9 @@ struct Solution
             {
                 if(!updated[i])
                 {
-                    curObj -= dist[curNode][i]*req[curNode][i];
-                    dist[curNode][i] = dist[i][curNode] = newEdge.len + dist[neighbor][i];
-                    curObj += dist[curNode][i]*req[curNode][i];
+                    curObj -= this->dist[curNode][i]*req[curNode][i];
+                    this->dist[curNode][i] = this->dist[i][curNode] = newEdge.len + this->dist[neighbor][i];
+                    curObj += this->dist[curNode][i]*req[curNode][i];
                     nodesToUpdate.push_back(i);
                 }
             }
@@ -307,9 +275,9 @@ struct Solution
                     seen[ainfo.v] = true;
                     for(int& i : nodesToUpdate)
                     {
-                        curObj -= dist[ainfo.v][i]*req[ainfo.v][i];
-                        dist[ainfo.v][i] = dist[i][ainfo.v] = ainfo.len + dist[curNode][i];
-                        curObj += dist[ainfo.v][i]*req[ainfo.v][i];
+                        curObj -= this->dist[ainfo.v][i]*req[ainfo.v][i];
+                        this->dist[ainfo.v][i] = this->dist[i][ainfo.v] = ainfo.len + this->dist[curNode][i];
+                        curObj += this->dist[ainfo.v][i]*req[ainfo.v][i];
                     }
                 }
             }
@@ -326,22 +294,23 @@ struct Solution
         assert(edge.id == rmEdge);
         this->removeEdge(edge);
         // call this to update the new distances correctly
-        this->objective = minObj;
+        this->computeObjectiveFun();
         assert(eq(minObj, this->objective));
     }
 
     // Mutate when considering to remove a random edge - O(m*n^2)
     void mutateRemoving()
     {
-        this->fillDist();
         // selecting edge to remove
         vi possibleEdges(n-1);
         int idx = 0;
-        for(auto it = usedEdges.begin(); it != usedEdges.end(); ++it)
+        for(int i = 0; i < m; ++i)
         {
-            possibleEdges[idx++] = *it;
+            if(this->usedEdge[i])
+            {
+                possibleEdges[idx++] = i;
+            }
         }
-        assert(idx == n-1);
         while(true)
         {
             int rdInt = possibleEdges[rand()%((int) possibleEdges.size())];
@@ -368,6 +337,17 @@ struct Solution
                     q.push(ainfo.v);
                 }
             }
+            int cnt = 0;
+            for(int i = 0; i < m; ++i)
+            {
+                // XOR is used to ensure the edge is connecting the two disconnected sets A and B
+                if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
+                {
+                    cnt++;
+                }
+            }
+            if(cnt >= 1100)
+                continue;
             // remove chosen edge
             this->removeEdge(edge);
             // Find the best edge to add when removing the chosen edge
@@ -375,67 +355,56 @@ struct Solution
             int addEdge;
             minObj = curObj = this->objective;
             addEdge = rdInt;
-            vector<int> possibleEdges;
             for(int i = 0; i < m; ++i)
             {
                 // XOR is used to ensure the edge is connecting the two disconnected sets A and B
-                if(!hasEdge(i) && (inA[edges[i].u]^inA[edges[i].v]))
+                if(!this->usedEdge[i] && (inA[edges[i].u]^inA[edges[i].v]))
                 {
-                    possibleEdges.push_back(i);
-                }            
-            }
-            shuffle(possibleEdges.begin(), possibleEdges.end(), default_random_engine(seed));
-            int cnt = 0;
-            for(int& i : possibleEdges)
-            {
-                cnt++;
-                curNode = edges[i].u;
-                list<int> nodesToUpdate;
-                for(int j = 0; j < n; ++j)
-                {
-                    if(inA[curNode]^inA[j]) // need to be updated
+                    curNode = edges[i].u;
+                    list<int> nodesToUpdate;
+                    for(int j = 0; j < n; ++j)
                     {
-                        curObj -= dist[curNode][j]*req[curNode][j];
-                        dist[curNode][j] = dist[j][curNode] = edges[i].len + dist[edges[i].v][j];
-                        curObj += dist[curNode][j]*req[curNode][j];
-                        nodesToUpdate.push_back(j);
-                    }
-                }
-                vb seen(n, false);
-                q.push(curNode);
-                // update the distance values from one set to the other
-                while(q.size())
-                {
-                    curNode = q.front();
-                    seen[curNode] = true;
-                    q.pop();
-                    for(AdjInfo& ainfo: this->adj[curNode])
-                    {
-                        if(seen[ainfo.v])
-                            continue;
-                        assert((inA[curNode]^inA[ainfo.v]) == 0);
-                        q.push(ainfo.v);
-                        seen[ainfo.v] = true;
-                        for(int& j : nodesToUpdate)
+                        if(inA[curNode]^inA[j]) // need to be updated
                         {
-                            curObj -= dist[ainfo.v][j]*req[ainfo.v][j];
-                            dist[ainfo.v][j] = dist[j][ainfo.v] = ainfo.len + dist[curNode][j];
-                            curObj += dist[ainfo.v][j]*req[ainfo.v][j];
+                            curObj -= this->dist[curNode][j]*req[curNode][j];
+                            this->dist[curNode][j] = this->dist[j][curNode] = edges[i].len + this->dist[edges[i].v][j];
+                            curObj += this->dist[curNode][j]*req[curNode][j];
+                            nodesToUpdate.push_back(j);
                         }
                     }
+                    vb seen(n, false);
+                    q.push(curNode);
+                    // update the distance values from one set to the other
+                    while(q.size())
+                    {
+                        curNode = q.front();
+                        seen[curNode] = true;
+                        q.pop();
+                        for(AdjInfo& ainfo: this->adj[curNode])
+                        {
+                            if(seen[ainfo.v])
+                                continue;
+                            assert((inA[curNode]^inA[ainfo.v]) == 0);
+                            q.push(ainfo.v);
+                            seen[ainfo.v] = true;
+                            for(int& j : nodesToUpdate)
+                            {
+                                curObj -= this->dist[ainfo.v][j]*req[ainfo.v][j];
+                                this->dist[ainfo.v][j] = this->dist[j][ainfo.v] = ainfo.len + this->dist[curNode][j];
+                                curObj += this->dist[ainfo.v][j]*req[ainfo.v][j];
+                            }
+                        }
+                    }
+                    if(curObj < minObj)
+                    {
+                        minObj = curObj;
+                        addEdge = i;
+                    }
                 }
-                if(curObj < minObj)
-                {
-                    minObj = curObj;
-                    addEdge = i;
-                }
-                /*if(cnt >= 100)
-                    break;*/
             }
             // Insert the best edge in solution
             Edge bestEdge = edges[addEdge];
-            //this->usedEdge[addEdge] = true;
-            usedEdges.insert(addEdge);
+            this->usedEdge[addEdge] = true;
             this->adj[bestEdge.u].push_back(AdjInfo(bestEdge.v, bestEdge.len, bestEdge.id));
             this->adj[bestEdge.v].push_back(AdjInfo(bestEdge.u, bestEdge.len, bestEdge.id));
             // update solution objective function and distances
@@ -446,7 +415,7 @@ struct Solution
             for(int i = 0; i < n; ++i)
             {
                 if(inA[curNode]^inA[i]) // if the values are updated by the edge
-                    dist[curNode][i] = dist[i][curNode] = bestEdge.len + dist[neighbor][i];
+                    this->dist[curNode][i] = this->dist[i][curNode] = bestEdge.len + this->dist[neighbor][i];
             }
             vb seen(n, false);
             q.push(curNode);
@@ -466,7 +435,7 @@ struct Solution
                     {
                         if(inA[curNode]^inA[i])
                         {
-                            dist[ainfo.v][i] = dist[i][ainfo.v] = ainfo.len + dist[curNode][i];
+                            this->dist[ainfo.v][i] = this->dist[i][ainfo.v] = ainfo.len + this->dist[curNode][i];
                         }
                     }
                 }
@@ -475,7 +444,7 @@ struct Solution
             double tmp = 0;
             for(int i = 0; i < n; ++i)
                 for(int j = i+1; j < n; ++j)
-                    tmp += dist[i][j]*req[i][j];
+                    tmp += this->dist[i][j]*req[i][j];
             assert(eq(tmp, this->objective));
             break;
         }
@@ -484,8 +453,7 @@ struct Solution
     // Removes edge from the solution (doesn't recompute anything)
     void removeEdge(Edge& edge)
     {
-        //this->usedEdge[edge.id] = false;
-        usedEdges.erase(edge.id);
+        this->usedEdge[edge.id] = false;
         for(auto it = this->adj[edge.u].begin(); it !=  this->adj[edge.u].end(); ++it)
         {
             if(it->id == edge.id)
@@ -506,7 +474,6 @@ struct Solution
 
 };
 
-
 // printing functions for debugging only purpose
 inline void print(Edge& e)
 {
@@ -525,17 +492,31 @@ void print(vector<Edge>& edges)
 void print(Solution& s)
 {
     printf("Edges used:\n");
-    for(auto it = s.usedEdges.begin(); it != s.usedEdges.end(); ++it)
+    for(int i = 0; i < m; ++i)
     {
-        print(edges[*it]);
+        if(s.usedEdge[i])
+        {
+            print(edges[i]);
+        }
     }
     putchar('\n');
     printf("Objective value = %.2f\n", s.objective);
     putchar('\n');
 }
+void print(vb& usedEdges)
+{
+    for(int i = 0; i < m; ++i)
+    {
+        if(usedEdges[i])
+        {
+            print(edges[i]);
+        }
+    }
+}
+
 
 // Variables used for solver
-static bool setupGurobi = true;
+/*static bool setupGurobi = true;
 static int constrCnt = 0;
 GRBEnv env = GRBEnv(true);
 vector<vector<int>> getIdxFlow;
@@ -543,7 +524,7 @@ vector<double> O;
 string getNewConstr()
 {
     return "C" + to_string(constrCnt++);
-}
+}*/
 
 /* 
 Flow formulation retrieved from:
@@ -551,7 +532,7 @@ PhD Thesis - The Optimum Communication Spanning Tree Problem (2015)
 Author: Carlos Luna-Mota
 Advisor: Elena Fernández
 */
-
+/*
 Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit)
 {
     assert((int) avEdges.size() == (int) fixedEdge.size());
@@ -579,7 +560,7 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit
     {
         if(setupGurobi)
         {
-            //env.set("OutputFlag", "0");
+            env.set("OutputFlag", "0");
             env.start();
             O.resize(n, 0.0);
             for(int u = 0; u < n; ++u)
@@ -675,7 +656,7 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit
         {
             if(x[i].get(GRB_DoubleAttr_X) > 0.99)
             {
-                sol.usedEdges.insert(avEdges[i].id);
+                sol.usedEdge[avEdges[i].id] = true;
                 sol.adj[avEdges[i].u].push_back(AdjInfo(avEdges[i].v, avEdges[i].len, avEdges[i].id));
                 sol.adj[avEdges[i].v].push_back(AdjInfo(avEdges[i].u, avEdges[i].len, avEdges[i].id));
             }
@@ -692,7 +673,7 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit
     }
     return sol;
 }
-
+*/
 void buildRandomSolution(vector<Edge>& edge, Solution& sol)
 {
     int m = (int) edge.size();
@@ -729,7 +710,7 @@ void buildRandomSolution(vector<Edge>& edge, Solution& sol)
             {
                 uf.unionSet(e.u, e.v);
                 nEdges++;
-                sol.usedEdges.insert(e.id);
+                sol.usedEdge[e.id] = true;
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
             }
@@ -758,7 +739,7 @@ void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
         if(fixedEdge[i])
         {
             uf.unionSet(edge[i].u, edge[i].v);
-            sol.usedEdges.insert(edge[i].id);
+            sol.usedEdge[edge[i].id] = true;
             sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
             sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
             solSize++;
@@ -821,7 +802,7 @@ void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
         if(!uf.isSameSet(e.u, e.v))
         {
             uf.unionSet(e.u, e.v);
-            sol.usedEdges.insert(e.id);
+            sol.usedEdge[e.id] = true;
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
             solSize++;
@@ -870,7 +851,7 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     {
         if(edgeID > -1)
         {
-            sol.usedEdges.insert(edgeID);
+            sol.usedEdge[edgeID] = true;
             cnt++;
             e = edges[edgeID];
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
@@ -958,7 +939,7 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
         {
             if(edgeID > -1)
             {
-                sol.usedEdges.insert(edgeID);
+                sol.usedEdge[edgeID] = true;
                 e = edges[edgeID];
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -974,7 +955,7 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                 continue;
             }
             e = *(it->second);
-            sol.usedEdges.insert(e.id);
+            sol.usedEdge[e.id] = true;
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
             break;
@@ -1094,9 +1075,9 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                 for(AdjInfo& ainfo : bestAdj[i])
                 {
                     e = edges[ainfo.id];
-                    if(!sol.hasEdge(e.id))
+                    if(sol.usedEdge[e.id] == false)
                     {
-                        sol.usedEdges.insert(e.id);
+                        sol.usedEdge[e.id] = true;
                         sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                         sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                     }
@@ -1118,7 +1099,6 @@ struct Evolutionary
     vector<Solution> offspring;
     vector<ii> wins;
     vector<double> fitness;
-    vector<double> newFitness;
     int popSize;                // initial population size
     int numTour;                // number of tournaments per generation
     int numGen;                 // number of generations
@@ -1135,7 +1115,6 @@ struct Evolutionary
         this->numMutations = numMutations;
         solutions.resize(popSize);
         fitness.resize(popSize);
-        newFitness.resize(popSize);
         offspring.resize(offspringSize);
         wins.resize(offspringSize);
     }
@@ -1166,24 +1145,21 @@ struct Evolutionary
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
-        Solution* tmpBest;
         while(gen <= numGen && notImproving < 25)
         {
             printf("Generation = %d\n", gen);
             minObj = DBL_MAX;
             maxObj = 0;
             // find best solution
-            tmpBest = &best;
             for(Solution& sol : solutions)
             {
                 minObj = min(minObj, sol.objective);
                 maxObj = max(maxObj, sol.objective);
-                if(sol.objective < tmpBest->objective)      // update if solution is better
+                if(sol.objective < best.objective)      // update if solution is better
                 {
-                    tmpBest = &sol;
+                    best = sol;
                 }
             }
-            best = *tmpBest;
             // Evaluate fitness ([0, 1] interval, greater is better)
             fitSum = 0;
             for(int i = 0; i < popSize; ++i)
@@ -1214,7 +1190,7 @@ struct Evolutionary
                 }
                 rngDbl = distrib(rng);
                 accVal = 0.0;
-                for(int j = 0; j < popSize; ++j)
+                 for(int j = 0; j < popSize; ++j)
                 {
                     if(leq(rngDbl, accVal + fitness[j]))    // parent chosen
                     {
@@ -1231,7 +1207,6 @@ struct Evolutionary
                 offspring[idx++] = solutions[i];
             }
             Solution* solPtr;
-            tmpBest = &best;
             for(int i = 0; i < numMutations; ++i)
             {
                 solPtr = &offspring[rand()%offspringSize];
@@ -1244,12 +1219,11 @@ struct Evolutionary
                 {
                     solPtr->mutateRemoving();
                 }
-                if(solPtr->objective < tmpBest->objective)      // update if solution is better
+                if(solPtr->objective < best.objective)      // update if solution is better
                 {
-                    tmpBest = solPtr;
+                    best = *solPtr;
                 }
             }
-            best = *tmpBest;
             for(int i = 0; i < offspringSize; ++i)
             {
                 wins[i] = mp(0, i);
@@ -1277,31 +1251,27 @@ struct Evolutionary
 
     Solution crossover(Solution& s1, Solution& s2)
     {
+        bool equal = true;
         vector<Edge> avEdges;
         vb fixedEdge;
-        map<int, int> mm;
-        for(auto it = s1.usedEdges.begin(); it != s1.usedEdges.end(); ++it)
+        for(int i = 0; i < m; ++i)
         {
-            mm[*it]++;
-        }
-        for(auto it = s2.usedEdges.begin(); it != s2.usedEdges.end(); ++it)
-        {
-            mm[*it]++;
-        }
-        for(auto it = mm.begin(); it != mm.end(); ++it)
-        {
-            avEdges.push_back(edges[it->first]);
-            if(it->second == 2)
+            if((!s1.usedEdge[i]) && (!s2.usedEdge[i]))
+                continue;
+            // Edge used in at least one tree
+            avEdges.push_back(edges[i]);
+            if(s1.usedEdge[i] && s2.usedEdge[i])
             {
                 fixedEdge.push_back(true);
             }
             else
             {
+                equal = false;
                 fixedEdge.push_back(false);
-            }
+            }         
         }
         Solution sol;
-        if((int) avEdges.size() == n-1)
+        if(equal)
         {
             sol = s1;
         }
@@ -1401,7 +1371,7 @@ struct Evolutionary
                     uf.unionSet(e.u, e.v);
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-                    sol.usedEdges.insert(e.id);
+                    sol.usedEdge[e.id] = true;
                     numForests--;
                 }
                 if(numForests == 1) // If the tree is done
@@ -1477,8 +1447,7 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    //sol.usedEdge[edgeID] = true;
-                    sol.usedEdges.insert(edgeID);
+                    sol.usedEdge[edgeID] = true;
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1498,7 +1467,7 @@ struct Evolutionary
             cur = rand()%n;
             for(int j = 0; j < m; ++j)
             {
-                if(solutions[cur].hasEdge(j))
+                if(solutions[cur].usedEdge[j])
                 {
                     if((rand()%10) == 0)    // 10% of chance to remove an used edge from the sol
                         tabu[j] = true;
@@ -1551,7 +1520,7 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    sol.usedEdges.insert(edgeID);
+                    sol.usedEdge[edgeID] = true;
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1559,7 +1528,6 @@ struct Evolutionary
                 }
             }
             assert(cnt == n-1);
-            sol.computeObjectiveFun();
             solutions[i] = sol;
         }  
     }
@@ -1623,7 +1591,7 @@ struct Evolutionary
                 if(!uf.isSameSet(e.u, e.v))
                 {
                     uf.unionSet(e.u, e.v);
-                    sol.usedEdges.insert(e.id);
+                    sol.usedEdge[e.id] = true;
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                     solSize++;
@@ -1716,7 +1684,7 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    sol.usedEdges.insert(edgeID);
+                    sol.usedEdge[edgeID] = true;
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1731,7 +1699,7 @@ struct Evolutionary
                     continue;
                 }
                 e = *(it->second);
-                sol.usedEdges.insert(e.id);
+                sol.usedEdge[e.id] = true;
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                 sol.computeObjectiveFun();
@@ -1853,9 +1821,9 @@ struct Evolutionary
                     for(AdjInfo& ainfo : bestAdj[i])
                     {
                         e = edges[ainfo.id];
-                        if(!sol.hasEdge(e.id))
+                        if(sol.usedEdge[e.id] == false)
                         {
-                            sol.usedEdges.insert(e.id);
+                            sol.usedEdge[e.id] = true;
                             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
                         }
@@ -1884,10 +1852,7 @@ int main(int argc, char* argv[])
         cin >> edges[i].u >> edges[i].v >> edges[i].len;
         edges[i].id = i;
     }
-    getIdxFlow.resize(n, vector<int>(2*m));
-    subtreeSize.resize(n);
-    seen.resize(n);
-    dist.resize(n, vector<double>(n));
+    //getIdxFlow.resize(n, vector<int>(2*m));
     req.resize(n, vector<double>(n));
     for(int i = 0; i < n; ++i)
     {
@@ -1942,7 +1907,7 @@ int main(int argc, char* argv[])
             printf("Best Value Found = %.10f\n", best.objective);
             end = chrono::steady_clock::now();
             cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
-            log << best.objective << "," <<  std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
+            log << best.objective << ", " <<  std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
         }
     }
     log.close();
