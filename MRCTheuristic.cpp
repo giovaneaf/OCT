@@ -596,11 +596,20 @@ int main(int argc, char* argv[])
     // ignore requirement values (is always 1)
     seen.resize(n);
     subtreeSize.resize(n);
-    Phase1();
-    Solution sol;
-    Phase2(sol);
-    printf("Phase 2 objective function = %.10f\n", sol.objective);
-    Phase3(sol);
-    printf("Phase 3 objective function = %.10f\n", sol.objective);
+    ofstream log("log.txt", ios::app);
+    log << fixed << setprecision(10);
+    chrono::steady_clock::time_point begin, end;
+    for(int i = 0; i < 3; ++i)
+    {
+        mode = i;
+        begin = chrono::steady_clock::now();
+        Phase1();
+        Solution sol;
+        Phase2(sol);
+        Phase3(sol);
+        end = chrono::steady_clock::now();
+        log << sol.objective << ',' << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << '\n';
+    }
+    log.close();
     return 0;
 }

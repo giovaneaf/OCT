@@ -7,7 +7,7 @@ using namespace std;
 #define vb vector<bool>
 #define vi vector<int>
 #define ii pair<int, int>
-#define EPS 1e-3
+#define EPS 1e-4
 
 int mode;
 
@@ -54,7 +54,6 @@ struct AdjInfo
     int id;
     AdjInfo(int v, double len, int id) : v(v), len(len), id(id) {}
 };
-
 
 /*
 The file is read in the following format
@@ -111,13 +110,11 @@ bool inline lt(double a, double b)
     return a < b && abs(a-b) > EPS;
 }
 
-// IMPORTANT: Assertions should be removed when testing
-
 // Stores candidate solution (tree)
 vector<vector<double>> dist;
 vector<int> subtreeSize;
 vector<bool> seen;
-/*struct Solution
+struct Solution
 {
     vector<vector<AdjInfo>> adj;
     //vector<vector<double>> dist;
@@ -140,7 +137,6 @@ vector<bool> seen;
         usedEdges.clear();
         objective = 0;
     }
-
 
     void computeObjectiveFun()
     {
@@ -251,7 +247,6 @@ vector<bool> seen;
         while(q.size()) // Empty queue for later usage
             q.pop();
         // insert chosen edge in tree
-        //this->usedEdge[rdInt] = true;
         usedEdges.insert(rdInt);
         this->adj[edge.u].push_back(AdjInfo(edge.v, edge.len, edge.id));
         this->adj[edge.v].push_back(AdjInfo(edge.u, edge.len, edge.id));
@@ -434,8 +429,8 @@ vector<bool> seen;
                     minObj = curObj;
                     addEdge = i;
                 }
-                if(cnt >= 15)
-                    break;
+                /*if(cnt >= 100)
+                    break;*/
             }
             // Insert the best edge in solution
             Edge bestEdge = edges[addEdge];
@@ -509,463 +504,8 @@ vector<bool> seen;
         }
     }
 
-};*/
-
-struct Solution;
-
-void neighbor(int i, Solution& sol);
-
-struct Solution
-{
-    vector<vector<AdjInfo>> adj;
-    //vector<vector<double>> dist;
-    //vb usedEdge;
-    set<int> usedEdges;
-    double objective;
-    
-    Solution()
-    {
-        adj.resize(n, vector<AdjInfo>());
-        objective = 0;
-    }
-    
-    void clear()
-    {
-        for(int i = 0; i < n; ++i)
-        {
-            adj[i].clear();
-        }
-        usedEdges.clear();
-        objective = 0;
-    }
-
-    void computeObjectiveFun()
-    {
-        this->objective = 0;
-        fill(seen.begin(), seen.end(), false);
-        this->countSubTreeSz(0);
-        Edge* e;
-        int subSz;
-        for(auto it = usedEdges.begin(); it != usedEdges.end(); ++it)
-        {
-            e = &edges[*it];
-            subSz = min(subtreeSize[e->u], subtreeSize[e->v]);
-            this->objective += e->len*(n-subSz)*subSz;
-        }
-    }
-
-    int countSubTreeSz(int cur)
-    {
-        seen[cur] = true;
-        int cnt = 1;
-        for(AdjInfo& ainfo : adj[cur])
-        {
-            if(seen[ainfo.v]) 
-                continue;
-            cnt += countSubTreeSz(ainfo.v);
-        }
-        subtreeSize[cur] = cnt;
-        return cnt;
-    }
-
-    void fillDist()
-    {
-        int cur;
-        for(int i = 0; i < n; ++i)
-        {
-            fill(dist[i].begin(), dist[i].end(), DBL_MAX);
-        }
-        // BFS for each node to compute the distances
-        for(int node = 0; node < n; ++node)
-        {
-            dist[node][node] = 0;
-            queue<int> q;
-            q.push(node);
-            while(q.size())
-            {
-                cur = q.front();
-                q.pop();
-                for(AdjInfo& ainfo: this->adj[cur])
-                {
-                    if(dist[node][ainfo.v] == DBL_MAX)
-                    {
-                        dist[node][ainfo.v] = ainfo.len + dist[node][cur];
-                        q.push(ainfo.v);
-                    }
-                }
-            }
-        }
-    }
-
-    inline bool hasEdge(int idx)
-    {
-        return usedEdges.find(idx) != usedEdges.end();
-    }
-
-    void mutateInserting()
-    {
-        this->fillDist();
-        // Selecting edge to insert
-        vi possibleEdges(m-(n-1));
-        int idx = 0;
-        for(int i = 0; i < m; ++i)
-        {
-            if(!hasEdge(i))
-            {
-                possibleEdges[idx++] = i;
-            }
-        }
-        int rdInt = possibleEdges[rand()%((int) possibleEdges.size())];
-        Edge edge = edges[rdInt];
-        // Find cycle in graph with BFS (path from one endpoint to the other)
-        vi dad(n, -1);
-        vi eIdx(n, -1);
-        queue<int> q;
-        q.push(edge.u);
-        int cur;
-        while(q.size())
-        {
-            cur = q.front();
-            q.pop();
-            for(AdjInfo& ainfo: this->adj[cur])
-            {
-                if(dad[ainfo.v] == -1)
-                {
-                    dad[ainfo.v] = cur;
-                    eIdx[ainfo.v] = ainfo.id;
-                    q.push(ainfo.v);
-                }
-                if(ainfo.v == edge.v)   // path found
-                    break;
-            }
-        }
-        while(q.size()) // Empty queue for later usage
-            q.pop();
-        // insert chosen edge in tree
-        //this->usedEdge[rdInt] = true;
-        usedEdges.insert(rdInt);
-        this->adj[edge.u].push_back(AdjInfo(edge.v, edge.len, edge.id));
-        this->adj[edge.v].push_back(AdjInfo(edge.u, edge.len, edge.id));
-        cur = edge.v;
-        int e1, e2, rmEdge, curNode;
-        double minObj, curObj;
-        e1 = e2 = rmEdge = edge.id;         // e2 represents the removed edge
-        minObj = curObj = this->objective;
-        // traverse all edges in cycle
-        while(cur != edge.u)
-        {
-            e1 = e2;
-            e2 = eIdx[cur];
-            vb updated(n, false);
-            q.push(cur);
-            // find all nodes that distances are outdated
-            while(q.size())
-            {
-                curNode = q.front();
-                updated[curNode] = true;
-                q.pop();
-                for(AdjInfo& ainfo: this->adj[curNode])
-                {
-                    if(updated[ainfo.v] || ainfo.id == e1 || ainfo.id == e2)
-                        continue;
-                    q.push(ainfo.v);
-                    updated[ainfo.v] = true;
-                }
-            }
-            // update the distances of the values doing BFS and updating the objective function
-            Edge newEdge = edges[e1];
-            int neighbor = getNeighbor(cur, newEdge);
-            curNode = cur;
-            list<int> nodesToUpdate;
-            for(int i = 0; i < n; ++i)
-            {
-                if(!updated[i])
-                {
-                    curObj -= dist[curNode][i]*req[curNode][i];
-                    dist[curNode][i] = dist[i][curNode] = newEdge.len + dist[neighbor][i];
-                    curObj += dist[curNode][i]*req[curNode][i];
-                    nodesToUpdate.push_back(i);
-                }
-            }
-            vb seen(n, false);
-            q.push(curNode);
-            // update remaining nodes
-            while(q.size())
-            {
-                curNode = q.front();
-                seen[curNode] = true;
-                q.pop();
-                for(AdjInfo& ainfo: this->adj[curNode])
-                {
-                    if(seen[ainfo.v] || ainfo.id == e1 || ainfo.id == e2)
-                        continue;
-                    q.push(ainfo.v);
-                    seen[ainfo.v] = true;
-                    for(int& i : nodesToUpdate)
-                    {
-                        curObj -= dist[ainfo.v][i]*req[ainfo.v][i];
-                        dist[ainfo.v][i] = dist[i][ainfo.v] = ainfo.len + dist[curNode][i];
-                        curObj += dist[ainfo.v][i]*req[ainfo.v][i];
-                    }
-                }
-            }
-            // after updating check if the objective function is lower than the last seen
-            if(curObj < minObj)
-            {
-                minObj = curObj;
-                rmEdge = e2;
-            }
-            cur = dad[cur];
-        }
-        // remove the edge s.t. objective function is minimum
-        edge = edges[rmEdge];
-        assert(edge.id == rmEdge);
-        this->removeEdge(edge);
-        // call this to update the new distances correctly
-        this->objective = minObj;
-        assert(eq(minObj, this->objective));
-    }
-
-    // Mutate when considering to remove a random edge - O(m*n^2)
-    void mutateRemoving()
-    {
-        // selecting edge to remove
-        vi possibleEdges(n-1);
-        int idx = 0;
-        for(auto it = usedEdges.begin(); it != usedEdges.end(); ++it)
-        {
-            possibleEdges[idx++] = *it;
-        }
-        assert(idx == n-1);
-        int rdInt = possibleEdges[rand()%((int) possibleEdges.size())];
-        Edge edge = edges[rdInt];
-        // find nodes in one set when removing the chosen edge
-        vi inA(n, 0);
-        queue<int> q;
-        q.push(edge.u);
-        int curNode;
-        int szA = 0;
-        while(q.size())
-        {
-            curNode = q.front();
-            inA[curNode] = 1;
-            szA++;
-            q.pop();
-            for(AdjInfo& ainfo: this->adj[curNode])
-            {
-                if(ainfo.id == edge.id)
-                    continue;
-                if(inA[ainfo.v])
-                    continue;
-                inA[ainfo.v] = 1;
-                q.push(ainfo.v);
-            }
-        }
-        // remove chosen edge
-        this->removeEdge(edge);
-        // pre compute the sums
-        vector<double> sum(n, 0.0);
-        vector<double> dst(n, DBL_MAX);
-        for(int i = 0; i < n; ++i)
-        {
-            fill(dst.begin(), dst.end(), DBL_MAX);
-            q.push(i);
-            dst[i] = 0.0;
-            while(q.size())
-            {
-                curNode = q.front();
-                q.pop();
-                for(AdjInfo& ainfo : adj[curNode])
-                {
-                    if(eq(dst[ainfo.v], DBL_MAX))
-                    {
-                        dst[ainfo.v] = dst[curNode] + ainfo.len;
-                        sum[i] += dst[ainfo.v];
-                        q.push(ainfo.v);
-                    }
-                }
-            }
-        }
-        // Find the best edge to add when removing the chosen edge
-        int addEdge;
-        addEdge = rdInt;
-        int a, b;
-        a = edges[rdInt].u;
-        b = edges[rdInt].v;
-        if(inA[b]) 
-            swap(a, b);
-        double best, tmp;
-        best = sum[a]*(n-szA) + sum[b]*szA + edges[rdInt].len*szA*(n-szA);
-        for(int i = 0; i < m; ++i)
-        {
-            // XOR is used to ensure the edge is connecting the two disconnected sets A and B
-            if(!hasEdge(i) && (inA[edges[i].u]^inA[edges[i].v]))
-            {
-                a = edges[i].u;
-                b = edges[i].v;
-                if(inA[b]) 
-                    swap(a, b);
-                tmp = sum[a]*(n-szA) + sum[b]*szA + edges[rdInt].len*szA*(n-szA);
-                if(lt(tmp, best))
-                {
-                    best = tmp;
-                    addEdge = i;
-                }
-            }            
-        }
-        // Insert the best edge in solution
-        Edge bestEdge = edges[addEdge];
-        //this->usedEdge[addEdge] = true;
-        usedEdges.insert(addEdge);
-        this->adj[bestEdge.u].push_back(AdjInfo(bestEdge.v, bestEdge.len, bestEdge.id));
-        this->adj[bestEdge.v].push_back(AdjInfo(bestEdge.u, bestEdge.len, bestEdge.id));
-        // update solution objective function and distances
-        this->computeObjectiveFun();
-    }
-
-    // Removes edge from the solution (doesn't recompute anything)
-    void removeEdge(Edge& edge)
-    {
-        //this->usedEdge[edge.id] = false;
-        usedEdges.erase(edge.id);
-        for(auto it = this->adj[edge.u].begin(); it !=  this->adj[edge.u].end(); ++it)
-        {
-            if(it->id == edge.id)
-            {
-                this->adj[edge.u].erase(it);
-                break;
-            }
-        }
-        for(auto it = this->adj[edge.v].begin(); it !=  this->adj[edge.v].end(); ++it)
-        {
-            if(it->id == edge.id)
-            {
-                this->adj[edge.v].erase(it);
-                break;
-            }
-        }
-    }
-
-    void localSearch()
-    {
-        Solution best, tmp;
-        best = *this;
-        bool improve = true;
-        while(improve)
-        {
-            improve = false;
-            for(int i = 0; i < n-1; ++i)
-            {
-                tmp = *this;
-                neighbor(i, tmp);
-                if(lt(tmp.objective, best.objective))
-                {
-                    best = tmp;
-                    improve = true;
-                }
-            }
-            printf("Objective (LS) = %.10f\n", best.objective);
-            *this = best;
-        }
-        *this = best;
-    }
-
 };
 
-void neighbor(int i, Solution& sol)
-{
-    vi possibleEdges(n-1);
-    int idx = 0;
-    for(auto it = sol.usedEdges.begin(); it != sol.usedEdges.end(); ++it)
-    {
-        possibleEdges[idx++] = *it;
-    }
-    assert(idx == n-1);
-    int rdInt = possibleEdges[i];
-    Edge edge = edges[rdInt];
-    // find nodes in one set when removing the chosen edge
-    vi inA(n, 0);
-    queue<int> q;
-    q.push(edge.u);
-    int curNode;
-    int szA = 0;
-    while(q.size())
-    {
-        curNode = q.front();
-        inA[curNode] = 1;
-        szA++;
-        q.pop();
-        for(AdjInfo& ainfo: sol.adj[curNode])
-        {
-            if(ainfo.id == edge.id)
-                continue;
-            if(inA[ainfo.v])
-                continue;
-            inA[ainfo.v] = 1;
-            q.push(ainfo.v);
-        }
-    }
-    // remove chosen edge
-    sol.removeEdge(edge);
-    // pre compute the sums
-    vector<double> sum(n, 0.0);
-    vector<double> dst(n, DBL_MAX);
-    for(int i = 0; i < n; ++i)
-    {
-        fill(dst.begin(), dst.end(), DBL_MAX);
-        q.push(i);
-        dst[i] = 0.0;
-        while(q.size())
-        {
-            curNode = q.front();
-            q.pop();
-            for(AdjInfo& ainfo : sol.adj[curNode])
-            {
-                if(eq(dst[ainfo.v], DBL_MAX))
-                {
-                    dst[ainfo.v] = dst[curNode] + ainfo.len;
-                    sum[i] += dst[ainfo.v];
-                    q.push(ainfo.v);
-                }
-            }
-        }
-    }
-    // Find the best edge to add when removing the chosen edge
-    int addEdge;
-    addEdge = rdInt;
-    int a, b;
-    a = edges[rdInt].u;
-    b = edges[rdInt].v;
-    if(inA[b]) 
-        swap(a, b);
-    double best, tmp;
-    best = sum[a]*(n-szA) + sum[b]*szA + edges[rdInt].len*szA*(n-szA);
-    for(int i = 0; i < m; ++i)
-    {
-        // XOR is used to ensure the edge is connecting the two disconnected sets A and B
-        if(!sol.hasEdge(i) && (inA[edges[i].u]^inA[edges[i].v]))
-        {
-            a = edges[i].u;
-            b = edges[i].v;
-            if(inA[b]) 
-                swap(a, b);
-            tmp = sum[a]*(n-szA) + sum[b]*szA + edges[rdInt].len*szA*(n-szA);
-            if(lt(tmp, best))
-            {
-                best = tmp;
-                addEdge = i;
-            }
-        }            
-    }
-    // Insert the best edge in solution
-    Edge bestEdge = edges[addEdge];
-    //this->usedEdge[addEdge] = true;
-    sol.usedEdges.insert(addEdge);
-    sol.adj[bestEdge.u].push_back(AdjInfo(bestEdge.v, bestEdge.len, bestEdge.id));
-    sol.adj[bestEdge.v].push_back(AdjInfo(bestEdge.u, bestEdge.len, bestEdge.id));
-    // update solution objective function and distances
-    sol.computeObjectiveFun();
-}
 
 // printing functions for debugging only purpose
 inline void print(Edge& e)
@@ -1135,7 +675,6 @@ Solution gurobiSolverFlow(vector<Edge>& avEdges, vb& fixedEdge, double timeLimit
         {
             if(x[i].get(GRB_DoubleAttr_X) > 0.99)
             {
-                //sol.usedEdge[avEdges[i].id] = true;
                 sol.usedEdges.insert(avEdges[i].id);
                 sol.adj[avEdges[i].u].push_back(AdjInfo(avEdges[i].v, avEdges[i].len, avEdges[i].id));
                 sol.adj[avEdges[i].v].push_back(AdjInfo(avEdges[i].u, avEdges[i].len, avEdges[i].id));
@@ -1190,7 +729,6 @@ void buildRandomSolution(vector<Edge>& edge, Solution& sol)
             {
                 uf.unionSet(e.u, e.v);
                 nEdges++;
-                //sol.usedEdge[e.id] = true;
                 sol.usedEdges.insert(e.id);
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1220,7 +758,6 @@ void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
         if(fixedEdge[i])
         {
             uf.unionSet(edge[i].u, edge[i].v);
-            //sol.usedEdge[edge[i].id] = true;
             sol.usedEdges.insert(edge[i].id);
             sol.adj[edge[i].u].push_back(AdjInfo(edge[i].v, edge[i].len, edge[i].id));
             sol.adj[edge[i].v].push_back(AdjInfo(edge[i].u, edge[i].len, edge[i].id));
@@ -1284,7 +821,6 @@ void buildProbGreedySolution(vector<Edge>& edge, vb& fixedEdge, Solution& sol)
         if(!uf.isSameSet(e.u, e.v))
         {
             uf.unionSet(e.u, e.v);
-            //sol.usedEdge[e.id] = true;
             sol.usedEdges.insert(e.id);
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1334,7 +870,6 @@ void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
     {
         if(edgeID > -1)
         {
-            //sol.usedEdge[edgeID] = true;
             sol.usedEdges.insert(edgeID);
             cnt++;
             e = edges[edgeID];
@@ -1423,7 +958,6 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
         {
             if(edgeID > -1)
             {
-                //sol.usedEdge[edgeID] = true;
                 sol.usedEdges.insert(edgeID);
                 e = edges[edgeID];
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
@@ -1440,7 +974,6 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                 continue;
             }
             e = *(it->second);
-            //sol.usedEdge[e.id] = true;
             sol.usedEdges.insert(e.id);
             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1563,7 +1096,6 @@ void buildPTASSolution(vector<Edge>& edge, Solution& sol)
                     e = edges[ainfo.id];
                     if(!sol.hasEdge(e.id))
                     {
-                        //sol.usedEdge[e.id] = true;
                         sol.usedEdges.insert(e.id);
                         sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                         sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -1631,7 +1163,6 @@ struct Evolutionary
         double fitSum;
         double rngDbl;
         double accVal;
-        double tmpFitSum;
         int rngInt;
         int notImproving = 0;
         double curBestVal = DBL_MAX;
@@ -1692,25 +1223,6 @@ struct Evolutionary
                     }
                     accVal += fitness[j];
                 }
-                /*tmpFitSum = 0.0;
-                for(int j = 0; j < popSize; ++j)
-                {
-                    if(id1 == j) newFitness[j] = 0.0;
-                    else newFitness[j] = computeSimilarity(solutions[id1], solutions[j]);
-                    tmpFitSum += newFitness[j];
-                }
-                std::uniform_real_distribution<double> tmpDistrib(0.0, tmpFitSum);
-                rngDbl = tmpDistrib(rng);
-                accVal = 0.0;
-                for(int j = 0; j < popSize; ++j)
-                {
-                    if(leq(rngDbl, accVal + newFitness[j]))    // parent chosen
-                    {
-                        id2 = j;
-                        break;
-                    }
-                    accVal += newFitness[j];
-                }*/
                 offspring[i] = crossover(solutions[id1], solutions[id2]);
             }
             int idx = numCrossover;
@@ -1760,8 +1272,6 @@ struct Evolutionary
             gen++;
             printf("Best so far = %.10f\n", best.objective);
         }
-        printf("Local Search started...\n");
-        best.localSearch();
         return best;
     }
 
@@ -1790,22 +1300,6 @@ struct Evolutionary
                 fixedEdge.push_back(false);
             }
         }
-        /*for(int i = 0; i < m; ++i)
-        {
-            if((!s1.usedEdge[i]) && (!s2.usedEdge[i]))
-                continue;
-            // Edge used in at least one tree
-            avEdges.push_back(edges[i]);
-            if(s1.usedEdge[i] && s2.usedEdge[i])
-            {
-                fixedEdge.push_back(true);
-            }
-            else
-            {
-                equal = false;
-                fixedEdge.push_back(false);
-            }         
-        }*/
         Solution sol;
         if((int) avEdges.size() == n-1)
         {
@@ -1887,24 +1381,6 @@ struct Evolutionary
         }
     }
 
-    double computeSimilarity(Solution& s1, Solution& s2)
-    {
-        set<int> s;
-        int neq = n-1;
-        for(auto it = s1.usedEdges.begin(); it != s1.usedEdges.end(); ++it)
-        {
-            s.insert(*it);
-        }
-        for(auto it = s2.usedEdges.begin(); it != s2.usedEdges.end(); ++it)
-        {
-            if(s.find(*it) != s.end())
-            {
-                neq--;
-            }
-        }
-        return 1.0-(double) neq/(n-1.0);
-    }
-
     /* Generate popSize initial solutions (trees) by shuffling the edges
 	   and inserting the edges like Kruskal Algorithm */
     void genRandomPop()
@@ -1925,7 +1401,6 @@ struct Evolutionary
                     uf.unionSet(e.u, e.v);
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-                    //sol.usedEdge[e.id] = true;
                     sol.usedEdges.insert(e.id);
                     numForests--;
                 }
@@ -2076,7 +1551,6 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    //sol.usedEdge[edgeID] = true;
                     sol.usedEdges.insert(edgeID);
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
@@ -2149,7 +1623,6 @@ struct Evolutionary
                 if(!uf.isSameSet(e.u, e.v))
                 {
                     uf.unionSet(e.u, e.v);
-                    //sol.usedEdge[e.id] = true;
                     sol.usedEdges.insert(e.id);
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                     sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -2243,7 +1716,6 @@ struct Evolutionary
             {
                 if(edgeID > -1)
                 {
-                    //sol.usedEdge[edgeID] = true;
                     sol.usedEdges.insert(edgeID);
                     e = edges[edgeID];
                     sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
@@ -2259,7 +1731,6 @@ struct Evolutionary
                     continue;
                 }
                 e = *(it->second);
-                //sol.usedEdge[e.id] = true;
                 sol.usedEdges.insert(e.id);
                 sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                 sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -2384,7 +1855,6 @@ struct Evolutionary
                         e = edges[ainfo.id];
                         if(!sol.hasEdge(e.id))
                         {
-                            //sol.usedEdge[e.id] = true;
                             sol.usedEdges.insert(e.id);
                             sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
                             sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
@@ -2414,7 +1884,7 @@ int main(int argc, char* argv[])
         cin >> edges[i].u >> edges[i].v >> edges[i].len;
         edges[i].id = i;
     }
-    //getIdxFlow.resize(n, vector<int>(2*m));
+    getIdxFlow.resize(n, vector<int>(2*m));
     subtreeSize.resize(n);
     seen.resize(n);
     dist.resize(n, vector<double>(n));
@@ -2427,14 +1897,9 @@ int main(int argc, char* argv[])
             req[j][i] = req[i][j];
         }
     }
-    /*vb fixedEdges(m, false);
-    Solution sol = gurobiSolverFlow(edges, fixedEdges, 1800.0);
-    sol.computeObjectiveFun();
-    printf("Objective = %.3f\n", sol.objective);
-    return 0;*/
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 2; mode >= 2; mode--)
+    for(mode = 3; mode >= 0; mode--)
     {
         if(mode == 0)
         {
@@ -2474,289 +1939,12 @@ int main(int argc, char* argv[])
             chrono::steady_clock::time_point begin, end;
             begin = chrono::steady_clock::now();
             Solution best = ev.run();
-            /*vector<Edge> vEdges;
-            for(int i = 0; i < m; ++i)
-            {
-                if(best.usedEdge[i])
-                    vEdges.push_back(edges[i]);
-            }
-            vector<bool> usedEdge(n-1, true);
-            Solution validation = gurobiSolverFlow(vEdges, usedEdge, INT_MAX);
-            validation.computeObjectiveFun();
-            assert(eq(validation.objective, best.objective));*/
             printf("Best Value Found = %.10f\n", best.objective);
             end = chrono::steady_clock::now();
             cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
-            log << best.objective << endl;
+            log << best.objective << ", " <<  std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << endl;
         }
     }
     log.close();
     return 0;
 }
-
-/*
-// Variables used for Gurobi solver
-vector<vector<double>> reqMin2;
-vector<vector<vector<int>>> getIdx;
-static bool setupGurobi = true;
-static int constrCnt = 0;
-GRBEnv env = GRBEnv(true);
-Solution gurobiSolverAnc(vector<Edge>& avEdges, vb& fixedEdge)
-{
-    assert((int) avEdges.size() == (int) fixedEdge.size());
-    Solution sol;
-    vector<vector<int>> Nmin;
-    vector<Edge> mEdges;
-    double d = 0;
-    int m = 2*(int) avEdges.size();
-    mEdges.resize(m);
-    Nmin.resize(n, vector<int>());
-    int cnt = 0;
-    for(Edge& e : avEdges)
-    {
-        mEdges[cnt] = {e.u, e.v, e.len, cnt};
-        mEdges[cnt+1] = {e.v, e.u, e.len, cnt+1};
-        Nmin[e.v].push_back(cnt);
-        Nmin[e.u].push_back(cnt+1);
-        d += e.len;
-        cnt += 2;
-    }
-    try 
-    {       
-        if(setupGurobi)
-        {
-            env.set("OutputFlag", "0");
-            env.start();
-            // Computed needed values for formulation
-            reqMin2.resize(n, vector<double>(n));
-            for(int u = 0; u < n; ++u)
-            {
-                for(int v = u+1; v < n; ++v)
-                {
-                    reqMin2[u][v] = -2*req[u][v];
-                }
-            }
-            getIdx.resize(n, vector<vector<int>>(n, vector<int>(n)));
-            cnt = 0;
-            for(int u = 0; u < n; ++u)
-                for(int v = 0; v < n; ++v)
-                    for(int w = 0; w < n; ++w)
-                        getIdx[u][v][w] = cnt++;
-            // Don't need to be computed anymore
-            setupGurobi = false;
-        }
-        // Create an empty model
-        GRBModel model = GRBModel(env);
-        // Create binary variables
-        GRBVar* x = model.addVars(m, GRB_BINARY);
-        GRBVar* y = model.addVars(n*n, GRB_BINARY);
-        GRBVar* z = model.addVars(n*n*n, GRB_BINARY);
-        // Create integer variables
-        GRBVar* eta = model.addVars(n, GRB_INTEGER);
-        // Create continuous variables
-        GRBVar* delta = model.addVars(n, GRB_CONTINUOUS);
-        GRBVar* rho = model.addVars(n*n*n, GRB_CONTINUOUS);
-        GRBLinExpr obj;
-        for(int u = 0; u < n; ++u)
-        {
-            for(int v = u+1; v < n; ++v)
-            {
-                obj.addTerms(&req[u][v], &delta[u], 1);
-                obj.addTerms(&req[u][v], &delta[v], 1);
-                for(int w = 0; w < n; ++w)
-                {
-                    obj.addTerms(&reqMin2[u][v], &rho[getIdx[w][u][v]], 1);
-                }
-            }
-        }
-        model.setObjective(obj, GRB_MINIMIZE);              // (01)
-        GRBLinExpr linexpr, linexpr2;
-        int root = 0;
-        const double one = 1.0;
-        for(int& inEdge : Nmin[root])
-        {
-            linexpr.addTerms(&one, &x[inEdge], 1);
-        }
-        model.addConstr(linexpr == 0, getNewConstr());      // (02)
-        model.addConstr(delta[root] == 0, getNewConstr());  // (04)
-        model.addConstr(eta[root] == 0, getNewConstr());    // (08)
-        linexpr.clear();
-        for(int u = 1; u < n; ++u)
-        {
-            for(int& inEdge : Nmin[u])
-            {
-                linexpr.addTerms(&one, &x[inEdge], 1);
-            }
-            model.addConstr(linexpr == 1, getNewConstr());  // (03)
-            model.addConstr(delta[u] >= 0, getNewConstr()); // (05)
-            model.addConstr(eta[u] >= 0, getNewConstr());   // (09)
-            linexpr.clear();
-        }
-        for(Edge& e : mEdges)
-        {
-            model.addConstr(delta[e.v] >= delta[e.u] + x[e.id]*e.len - (1 - x[e.id])*d, getNewConstr());            // (06)
-            model.addConstr(delta[e.v] <= delta[e.u] + x[e.id]*e.len + (1 - x[e.id])*d, getNewConstr());            // (07)
-            model.addConstr(eta[e.v] >= eta[e.u] + x[e.id] - (1 - x[e.id])*n, getNewConstr());                      // (10)
-            model.addConstr(eta[e.v] <= eta[e.u] + x[e.id] + (1 - x[e.id])*n, getNewConstr());                      // (11)
-            model.addConstr(y[getIdx[0][e.u][e.v]] >= x[e.id], getNewConstr());                                     // (14)
-        }
-        for(int i = 0; i < m/2; ++i)
-        {
-            // Constraint to ensure the fixed edges are in solution
-            if(fixedEdge[i])
-            {
-                model.addConstr(x[2*i]+x[2*i+1] == 1, getNewConstr());
-            }
-        }
-        for(int v = 0; v < n; ++v)
-        {
-            model.addConstr(y[getIdx[0][v][v]] == 1, getNewConstr());   //(13)
-            for(int u = 0; u < n; ++u)
-            {
-                linexpr.addTerms(&one, &y[getIdx[0][u][v]], 1);
-            }
-            model.addConstr(linexpr == eta[v]+1);               //(12)
-            linexpr.clear();
-        }
-        int uv, uw, vw, wuv, wu, wv;
-        for(int u = 0; u < n; ++u)
-        {
-            for(int v = 0; v < n; ++v)
-            {
-                if(u == v) continue;
-                uv = getIdx[0][u][v];
-                for(int w = 0; w < n; ++w)
-                {
-                    uw = getIdx[0][u][w];
-                    vw = getIdx[0][v][w];
-                    wuv = getIdx[w][u][v];
-                    wu = getIdx[0][w][u];
-                    wv = getIdx[0][w][v];
-                    model.addConstr(y[uv] + y[vw] <= 1 + y[uw], getNewConstr());    //(15)
-                    model.addConstr(2*z[wuv] <= y[wu] + y[wv], getNewConstr());     //(16)
-                    model.addConstr(z[wuv]+1 >= y[wu] + y[wv], getNewConstr());     //(17)
-                    for(int& eid : Nmin[w])
-                    {
-                        linexpr.addTerms(&mEdges[eid].len, &x[eid], 1);
-                        linexpr2.addTerms(&mEdges[eid].len, &z[wuv], 1);
-                    }
-                    model.addConstr(rho[wuv] <= linexpr, getNewConstr());           //(18)
-                    model.addConstr(rho[wuv] <= linexpr2, getNewConstr());          //(18)
-                    linexpr.clear();
-                    linexpr2.clear();
-                }
-            }
-        }
-        // Optimize model
-        model.optimize();
-        // Set new solution to return
-        int idx = 0;
-        for(int i = 0; i < m; i += 2)
-        {
-            if(x[i].get(GRB_DoubleAttr_X) > 0.99 || x[i+1].get(GRB_DoubleAttr_X) > 0.99)
-            {
-                sol.usedEdge[avEdges[idx].id] = true;
-                sol.adj[avEdges[idx].u].push_back(AdjInfo(avEdges[idx].v, avEdges[idx].len, avEdges[idx].id));
-                sol.adj[avEdges[idx].v].push_back(AdjInfo(avEdges[idx].u, avEdges[idx].len, avEdges[idx].id));
-            }
-            idx++;
-        }
-    }
-    catch(GRBException e) 
-    {
-        cout << "Error code = " << e.getErrorCode() << endl;
-        cout << e.getMessage() << endl;
-    } 
-    catch(...) 
-    {
-        cout << "Exception during optimization" << endl;
-    }
-    constrCnt = 0;
-    return sol;
-}
-*/
-
-/*
-// hash to store solution for crossover (when solver is called)
-struct Hash
-{
-    double estSearchTime = 0.0;     // time to query in map using EMA
-    double estSolverTime = 0.0;     // time to call solver
-    double alpha = 0.99;            // parameter for Exponential Moving Average (EMA)
-    long long int nCalls = 0;       // number of calls
-    double remPercentage = 0.05;    // remove 5% of the table when it's slow
-    struct Entry
-    {
-        Solution sol;               // solver solutions
-        long long int solverTime;   // solver time for this call
-    };
-    struct Order
-    {
-        double time;
-        map<vector<int>, Entry>::iterator it;
-        bool operator< (const Order& o) const
-        {
-            return time < o.time;
-        }
-    };
-    map<vector<int>, Entry> table;
-    multiset<Order> ms;              // used to remove fastest solver calls
-    chrono::steady_clock::time_point begin, end;
-    long long int elapsedTime;
-    bool growing = true;
-    double timeLimit = 30;           // time limit in seconds of gurobi
-    void lookUp(vector<Edge>& avEdges, vb& fixedEdge, Solution& sol)
-    {
-        nCalls++;
-        // key (used edges) to find in map
-        vector<int> key((int) avEdges.size());
-        int nFixedEdges = 0;
-        for(int i = 0; i < (int) avEdges.size(); ++i)
-        {
-            key[i] = avEdges[i].id;
-            if(fixedEdge[i]) 
-                nFixedEdges++;
-        }
-        // search in map and update search time
-        begin = chrono::steady_clock::now();
-        map<vector<int>, Entry>::iterator it = table.find(key);
-        end = chrono::steady_clock::now();
-        elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
-        estSearchTime = alpha*estSearchTime + (1-alpha)*elapsedTime;
-        if(leq(estSearchTime*3.0, estSolverTime))
-            growing = true;
-        else
-            growing = false;        
-        if(it == table.end())    // key not found insert in map
-        {
-            if(!growing)
-            {
-                table.erase(ms.begin()->it);
-                ms.erase(ms.begin());
-            }
-            // call solver and update solver time
-            Entry entry;
-            begin = chrono::steady_clock::now();
-            cout << "called solver with " << (int) avEdges.size() << " edges which " << nFixedEdges << " are already set\n";
-            entry.sol = gurobiSolverFlow(avEdges, fixedEdge, timeLimit);
-            end = chrono::steady_clock::now();
-            elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
-            std::cout << "Solver time = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "ms" << endl;
-            estSolverTime += (elapsedTime - estSolverTime)/nCalls;
-            entry.sol.computeObjectiveFun();
-            entry.solverTime = elapsedTime;
-            table[key] = entry;
-            sol = entry.sol;
-            Order order;
-            order.it = table.find(key);
-            order.time = elapsedTime;
-            ms.insert(order);
-            return ;
-        }
-        // if key is in map
-        sol = it->second.sol;
-        estSolverTime += (it->second.solverTime - estSolverTime)/nCalls;
-    }
-};
-Hash myHash;
-*/

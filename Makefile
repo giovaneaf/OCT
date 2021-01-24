@@ -10,6 +10,9 @@ all: evolutionary.cpp
 heuristic: MRCTheuristic.cpp
 	g++ $(FLAGS) MRCTheuristic.cpp -o heuristic
 
+MRCT: evolutionaryMRCT.cpp
+	g++ $(FLAGS) evolutionaryMRCT.cpp -o evolutionaryMRCT
+
 grb: mipgrb.cpp
 	g++ $(FLAGS) mipgrb.cpp -o mipgrb $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
 
