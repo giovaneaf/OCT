@@ -10,8 +10,8 @@ all: evolutionary.cpp
 heuristic: MRCTheuristic.cpp
 	g++ $(FLAGS) MRCTheuristic.cpp -o heuristic
 
-MRCT: evolutionaryMRCT.cpp
-	g++ $(FLAGS) evolutionaryMRCT.cpp -o evolutionaryMRCT
+gls: gls.cpp
+	g++ $(FLAGS) gls.cpp -o gls
 
 clean:
-	rm evolutionary
+	rm evolutionary heuristic

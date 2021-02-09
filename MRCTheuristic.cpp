@@ -45,10 +45,12 @@ vector<vector<int>> n_;
 vector<vector<int>> getID;
 vector<vector<Level>> L;
 vector<int> nodeLevel;
-vector<int> subtreeSize;
 vector<bool> seen;
 vector<int> coreEdge;
 int lmax;
+
+vector<vector<double>> dist;
+vector<vector<double>> req; // requirement values
 
 inline int getNeighbor(int u, Edge& e)
 {
@@ -91,31 +93,36 @@ struct Solution
 
     void computeObjectiveFun()
     {
+        int cur;
+        for(int i = 0; i < n; ++i)
+        {
+            fill(dist[i].begin(), dist[i].end(), DBL_MAX);
+        }
         this->objective = 0;
-        fill(seen.begin(), seen.end(), false);
-        this->countSubTreeSz(0);
-        Edge* e;
-        int subSz;
-        for(auto it = usedEdges.begin(); it != usedEdges.end(); ++it)
+        // BFS for each node to compute the distances
+        for(int node = 0; node < n; ++node)
         {
-            e = &edges[*it];
-            subSz = min(subtreeSize[e->u], subtreeSize[e->v]);
-            this->objective += e->len*(n-subSz)*subSz;
+            dist[node][node] = 0;
+            queue<int> q;
+            q.push(node);
+            while(q.size())
+            {
+                cur = q.front();
+                q.pop();
+                for(AdjInfo& ainfo: this->adj[cur])
+                {
+                    if(dist[node][ainfo.v] == DBL_MAX)
+                    {
+                        dist[node][ainfo.v] = ainfo.len + dist[node][cur];
+                        q.push(ainfo.v);
+                    }
+                }
+            }
+            for(int v = node+1; v < n; v++)
+            {
+                objective += dist[node][v]*req[node][v];
+            }
         }
-    }
-
-    int countSubTreeSz(int cur)
-    {
-        seen[cur] = true;
-        int cnt = 1;
-        for(AdjInfo& ainfo : adj[cur])
-        {
-            if(seen[ainfo.v]) 
-                continue;
-            cnt += countSubTreeSz(ainfo.v);
-        }
-        subtreeSize[cur] = cnt;
-        return cnt;
     }
 
     void removeEdge(Edge& edge)
@@ -391,6 +398,10 @@ void Phase2(Solution& sol)
     sol.computeObjectiveFun();
 }
 
+chrono::steady_clock::time_point a, b, tma;
+
+#define TIME_OUT 1200
+
 void Phase3(Solution& sol)
 {
     int l, g, cur, updateEdge;
@@ -455,14 +466,24 @@ void Phase3(Solution& sol)
             coreEdge[g] = updateEdge;
         }
     }
-    bool improve;
+    bool improve, finish;
+    finish = false;
     do
     {
         improve = false;
+        tma = chrono::steady_clock::now();
+        cout << best.objective << ',' << std::chrono::duration_cast<std::chrono::seconds>(tma - a).count() << '\n';
         for(l = lmax-1; l >= 1; --l)
         {
             for(Level& lvl : L[l])
             {
+                tma = chrono::steady_clock::now();
+                int ellapsed = std::chrono::duration_cast<std::chrono::seconds>(tma - a).count();
+                if(ellapsed >= TIME_OUT)
+                {
+                    finish = true;
+                    break;
+                }
                 g = lvl.node;
                 assert(coreEdge[g] > -1);
                 e = edges[coreEdge[g]];
@@ -509,16 +530,28 @@ void Phase3(Solution& sol)
                     {
                         best = tmp;
                         updateEdge = ainfo.id;
+                        improve = true;
+                        tma = chrono::steady_clock::now();
+                        cout << best.objective << ',' << std::chrono::duration_cast<std::chrono::seconds>(tma - a).count() << '\n';
                     }
                     tmp.removeEdge(edges[ainfo.id]);
                 }
                 coreEdge[g] = updateEdge;
             }
         }
+        if(finish)
+            break;
         for(l = 1; l <= lmax-1; ++l)
         {
             for(Level& lvl : L[l])
             {
+                tma = chrono::steady_clock::now();
+                int ellapsed = std::chrono::duration_cast<std::chrono::seconds>(tma - a).count();
+                if(ellapsed >= TIME_OUT)
+                {
+                    finish = true;
+                    break;
+                }
                 g = lvl.node;
                 assert(coreEdge[g] > -1);
                 e = edges[coreEdge[g]];
@@ -565,13 +598,18 @@ void Phase3(Solution& sol)
                     {
                         best = tmp;
                         updateEdge = ainfo.id;
+                        improve = true;
+                        tma = chrono::steady_clock::now();
+                        cout << best.objective << ',' << std::chrono::duration_cast<std::chrono::seconds>(tma - a).count() << '\n';
                     }
                     tmp.removeEdge(edges[ainfo.id]);
                 }
                 coreEdge[g] = updateEdge;
             }
         }
-    } while (improve);
+        if(finish)
+            break;
+    } while (improve && !finish);
     sol = best;
 }
 
@@ -586,6 +624,8 @@ int main(int argc, char* argv[])
     cin >> n >> m;
     edges.resize(m);
     adjList.resize(n, vector<AdjInfo>());
+    dist.resize(n, vector<double>(n));
+    req.resize(n, vector<double>(n));
     for(int i = 0; i < m; ++i)
     {
         cin >> edges[i].u >> edges[i].v >> edges[i].len;
@@ -593,22 +633,28 @@ int main(int argc, char* argv[])
         adjList[edges[i].u].push_back(AdjInfo(edges[i].v, edges[i].len, edges[i].id));
         adjList[edges[i].v].push_back(AdjInfo(edges[i].u, edges[i].len, edges[i].id));
     }
-    // ignore requirement values (is always 1)
+    for(int i = 0; i < n; ++i)
+    {
+        for(int j = i+1; j < n; ++j)
+        {
+            cin >> req[i][j];
+        }
+    }
     seen.resize(n);
-    subtreeSize.resize(n);
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    chrono::steady_clock::time_point begin, end;
+    cout << fixed << setprecision(10);
+    Phase1();
     for(int i = 0; i < 3; ++i)
     {
         mode = i;
-        begin = chrono::steady_clock::now();
-        Phase1();
+        a = chrono::steady_clock::now();
         Solution sol;
         Phase2(sol);
         Phase3(sol);
-        end = chrono::steady_clock::now();
-        log << sol.objective << ',' << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << '\n';
+        b = chrono::steady_clock::now();
+        cout << sol.objective << ',' << std::chrono::duration_cast<std::chrono::seconds>(b - a).count() << '\n';
+        log << sol.objective << ',' << std::chrono::duration_cast<std::chrono::seconds>(b - a).count() << '\n';
     }
     log.close();
     return 0;

@@ -1528,6 +1528,7 @@ struct Evolutionary
                 }
             }
             assert(cnt == n-1);
+            sol.computeObjectiveFun();
             solutions[i] = sol;
         }  
     }
