@@ -7,6 +7,7 @@ using namespace std;
 #define vi vector<int>
 #define ii pair<int, int>
 #define EPS 1e-4
+#define TIMEOUT 1200
 
 struct Edge 
 {
@@ -493,7 +494,7 @@ void genRandomSol(Solution& sol)
     sol.computeObjectiveFun();
 }
 
-Solution GLS(int timeout)
+Solution GLS()
 {
     fill(penalty.begin(), penalty.end(), 0);
     ft1 = 0.0;
@@ -513,7 +514,7 @@ Solution GLS(int timeout)
         {
             c = chrono::steady_clock::now();
             ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
-            if(ellapsed >= timeout)
+            if(ellapsed >= TIMEOUT)
             {
                 return best;
             }
@@ -571,7 +572,7 @@ Solution GLS(int timeout)
             {
                 c = chrono::steady_clock::now();
                 ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
-                if(ellapsed >= timeout)
+                if(ellapsed >= TIMEOUT)
                 {
                     return best;
                 }
@@ -627,7 +628,7 @@ int main()
         srand(seed);
         rng.seed(seed);
         a = chrono::steady_clock::now();
-        Solution best = GLS(300);
+        Solution best = GLS();
         printf("Best Value Found = %.10f\n", best.objective);
         b = chrono::steady_clock::now();
         cout << "Time elapsed = " << std::chrono::duration_cast<std::chrono::seconds>(b - a).count() << endl;
