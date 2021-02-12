@@ -6,7 +6,7 @@ using namespace std;
 #define vb vector<bool>
 #define vi vector<int>
 #define ii pair<int, int>
-#define EPS 1e-3
+#define EPS 1e-4
 #define TIMEOUT 1200
 
 struct Edge 
@@ -200,8 +200,133 @@ struct Solution
         return usedEdges.find(idx) != usedEdges.end();
     }
 
-    // Neighbors of current solution
-    void mutateRemoving(Solution& best, int& notImproving)
+    // Mutate when inserting a new edge in the solution - O(n^2)
+    void mutateInserting(int i)
+    {
+        this->fillDist();
+        // Selecting edge to insert
+        vi possibleEdges(m-(n-1));
+        int idx = 0;
+        for(int i = 0; i < m; ++i)
+        {
+            if(!hasEdge(i))
+            {
+                possibleEdges[idx++] = i;
+            }
+        }
+        int rdInt = i;
+        Edge edge = edges[rdInt];
+        // Find cycle in graph with BFS (path from one endpoint to the other)
+        vi dad(n, -1);
+        vi eIdx(n, -1);
+        queue<int> q;
+        q.push(edge.u);
+        int cur;
+        while(q.size())
+        {
+            cur = q.front();
+            q.pop();
+            for(AdjInfo& ainfo: this->adj[cur])
+            {
+                if(dad[ainfo.v] == -1)
+                {
+                    dad[ainfo.v] = cur;
+                    eIdx[ainfo.v] = ainfo.id;
+                    q.push(ainfo.v);
+                }
+                if(ainfo.v == edge.v)   // path found
+                    break;
+            }
+        }
+        while(q.size()) // Empty queue for later usage
+            q.pop();
+        // insert chosen edge in tree
+        usedEdges.insert(rdInt);
+        this->adj[edge.u].push_back(AdjInfo(edge.v, edge.len, edge.id));
+        this->adj[edge.v].push_back(AdjInfo(edge.u, edge.len, edge.id));
+        cur = edge.v;
+        int e1, e2, rmEdge, curNode;
+        double minObj, curObj;
+        e1 = e2 = rmEdge = edge.id;         // e2 represents the removed edge
+        minObj = curObj = this->objective;
+        // traverse all edges in cycle
+        while(cur != edge.u)
+        {
+            e1 = e2;
+            e2 = eIdx[cur];
+            vb updated(n, false);
+            q.push(cur);
+            // find all nodes that distances are outdated
+            while(q.size())
+            {
+                curNode = q.front();
+                updated[curNode] = true;
+                q.pop();
+                for(AdjInfo& ainfo: this->adj[curNode])
+                {
+                    if(updated[ainfo.v] || ainfo.id == e1 || ainfo.id == e2)
+                        continue;
+                    q.push(ainfo.v);
+                    updated[ainfo.v] = true;
+                }
+            }
+            // update the distances of the values doing BFS and updating the objective function
+            Edge newEdge = edges[e1];
+            int neighbor = getNeighbor(cur, newEdge);
+            curNode = cur;
+            list<int> nodesToUpdate;
+            for(int i = 0; i < n; ++i)
+            {
+                if(!updated[i])
+                {
+                    curObj -= dist[curNode][i]*req[curNode][i];
+                    dist[curNode][i] = dist[i][curNode] = newEdge.len + dist[neighbor][i];
+                    curObj += dist[curNode][i]*req[curNode][i];
+                    nodesToUpdate.push_back(i);
+                }
+            }
+            vb seen(n, false);
+            q.push(curNode);
+            // update remaining nodes
+            while(q.size())
+            {
+                curNode = q.front();
+                seen[curNode] = true;
+                q.pop();
+                for(AdjInfo& ainfo: this->adj[curNode])
+                {
+                    if(seen[ainfo.v] || ainfo.id == e1 || ainfo.id == e2)
+                        continue;
+                    q.push(ainfo.v);
+                    seen[ainfo.v] = true;
+                    for(int& i : nodesToUpdate)
+                    {
+                        curObj -= dist[ainfo.v][i]*req[ainfo.v][i];
+                        dist[ainfo.v][i] = dist[i][ainfo.v] = ainfo.len + dist[curNode][i];
+                        curObj += dist[ainfo.v][i]*req[ainfo.v][i];
+                    }
+                }
+            }
+            // after updating check if the objective function is lower than the last seen
+            if(curObj < minObj)
+            {
+                minObj = curObj;
+                rmEdge = e2;
+            }
+            cur = dad[cur];
+        }
+        // remove the edge s.t. objective function is minimum
+        edge = edges[rmEdge];
+        assert(edge.id == rmEdge);
+        this->removeEdge(edge);
+        // call this to update the new distances correctly
+        this->objective = minObj;
+        assert(eq(minObj, this->objective));
+        this->computeObjectiveFun();
+    }
+
+    // Mutate when considering to remove a random edge - O(m*n^2)
+    void mutateRemoving(int i, Solution& best, int& notImproving)
     {
         this->fillDist();
         // selecting edge to remove
@@ -214,7 +339,7 @@ struct Solution
         assert(idx == n-1);
         while(true)
         {
-            int rdInt = possibleEdges[rand()%(int) possibleEdges.size()];
+            int rdInt = possibleEdges[i];
             Edge edge = edges[rdInt];
             // find nodes in one set when removing the chosen edge
             vi inA(n, 0);
@@ -264,17 +389,15 @@ struct Solution
                 tmp.adj[edges[i].u].push_back(AdjInfo(edges[i].v, edges[i].len, edges[i].id));
                 tmp.adj[edges[i].v].push_back(AdjInfo(edges[i].u, edges[i].len, edges[i].id));
                 tmp.computeObjectiveFun();
-                if(lt(tmp.objective, best.objective))
-                {
-                    best = tmp;
-                    notImproving = 0;
-                    printf("Objective = %.10f\n", best.objective);
-                }
                 if(tmp.h < minObj)
                 {
                     minObj = tmp.h;
                     addEdge = i;
-                    break;
+                }
+                if(lt(tmp.objective, best.objective))
+                {
+                    best = tmp;
+                    notImproving = 0;
                 }
                 if(cnt >= 100)
                     break;
@@ -377,42 +500,47 @@ Solution GLS()
     ft1 = 0.0;
     lambda = 0.0;
     Solution best, bestIt, imp, tmp, newSol;
+    bool improve;
     genRandomSol(best);
     int ellapsed;
     printf("Objective = %.10f\n", best.objective);
     bestIt = best;
-    int notImproving;
-    notImproving = 0;
+    int notImproving = 0;
     do
     {
+        improve = false;
         imp = bestIt;
-        c = chrono::steady_clock::now();
-        ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
-        if(ellapsed >= TIMEOUT)
+        for(int i = 0; i < min(20, n-1); ++i)
         {
-            return best;
-        }
-        tmp = bestIt;
-        tmp.mutateRemoving(best, notImproving);
-        if(lt(tmp.h, imp.h))
-        {
-            notImproving = 0;
-            imp = tmp;
-        }
-        if(lt(tmp.objective, best.objective))
-        {
-            best = tmp;
+            c = chrono::steady_clock::now();
+            ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
+            if(ellapsed >= TIMEOUT)
+            {
+                return best;
+            }
+            tmp = bestIt;
+            tmp.mutateRemoving(rand()%(n-1), best, notImproving);
+            if(lt(tmp.h, imp.h))
+            {
+                improve = true;
+                imp = tmp;
+            }
+            if(lt(tmp.objective, best.objective))
+            {
+                best = tmp;
+            }
         }
         bestIt = imp;
-    } while(notImproving < 25);
+    } while(improve);
     ft1 = bestIt.objective;
     lambda = alpha*ft1/(n-1);
     std::uniform_real_distribution<double> distrib(0.0, 1.0);
     double rngVal;
-    int bestImprovement = 0;
+    notImproving = 0;
     do
     {
-        bestImprovement++;
+        printf("Objective = %.10f\n", best.objective);
+        notImproving++;
         double mn, mx, util;
         mn = DBL_MAX;
         mx = 0;
@@ -424,49 +552,46 @@ Solution GLS()
         for(auto it = bestIt.usedEdges.begin(); it != bestIt.usedEdges.end(); ++it)
         {
             if(mn == mx) 
-                util = 0.1;
+                util = 0.2;
             else
                 util = (edges[*it].len-mn)/(mx-mn);
-            util = min(util, 0.8);
             rngVal = distrib(rng);
             if(leq(rngVal, util))
             {
                 penalty[*it]++;
             }
         }
-        notImproving = 0;
-        double bestObj = best.objective;
+        genRandomSol(newSol);
+        bestIt = newSol;
+        bestIt.computeObjectiveFun();
         do
         {
-            notImproving++;
+            improve = false;
             imp = bestIt;
-            c = chrono::steady_clock::now();
-            ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
-            if(ellapsed >= TIMEOUT)
+            for(int i = 0; i < min(20, n-1); ++i)
             {
-                return best;
-            }
-            tmp = bestIt;
-            tmp.mutateRemoving(best, notImproving);
-            if(lt(tmp.h, imp.h))
-            {  
-                notImproving = 0;
-                imp = tmp;
-            }
-            if(lt(tmp.objective, best.objective))
-            {
-                best = tmp;
+                c = chrono::steady_clock::now();
+                ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
+                if(ellapsed >= TIMEOUT)
+                {
+                    return best;
+                }
+                tmp = bestIt;
+                tmp.mutateRemoving(rand()%(n-1), best, notImproving);
+                if(lt(tmp.h, imp.h))
+                {   
+                    improve = true;
+                    imp = tmp;
+                }
+                if(lt(tmp.objective, best.objective))
+                {
+                    best = tmp;
+                }
             }
             bestIt = imp;
-        } while (notImproving < 25);
+        } while (improve);
         
-        if(lt(best.objective, bestObj))
-        {
-            bestObj = best.objective;
-            bestImprovement = 0;
-        }
-
-    } while (bestImprovement >= 25);
+    } while (notImproving >= 10);
     
     return best;
 }

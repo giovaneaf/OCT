@@ -13,5 +13,8 @@ heuristic: MRCTheuristic.cpp
 gls: gls.cpp
 	g++ $(FLAGS) gls.cpp -o gls
 
+simpleEvo: simpleEvo.cpp
+	g++ $(FLAGS) simpleEvo.cpp -o simpleEvo
+
 clean:
-	rm evolutionary heuristic
+	rm evolutionary heuristic gls simpleEvo

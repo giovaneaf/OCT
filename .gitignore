@@ -2,7 +2,8 @@
 evolutionary
 heuristic
 gls
-evo.exe
+glsv2
+simpleEvo
 
 #settings.json
 .vscode/settings.json

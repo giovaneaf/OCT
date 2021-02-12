@@ -428,8 +428,8 @@ struct Solution
                     minObj = curObj;
                     addEdge = i;
                 }
-                /*if(cnt >= 100)
-                    break;*/
+                if(cnt >= 100)
+                    break;
             }
             // Insert the best edge in solution
             Edge bestEdge = edges[addEdge];
