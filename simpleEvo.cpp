@@ -7,7 +7,7 @@ using namespace std;
 #define vi vector<int>
 #define ii pair<int, int>
 #define EPS 1e-3
-#define TIMEOUT 1200
+#define TIMEOUT 3600
 
 int mode;
 
@@ -448,6 +448,12 @@ struct Evolutionary
         int numSol = 1000;
         vector<Solution> iniSol(numSol);
         genRandom(iniSol, numSol);
+        c = chrono::steady_clock::now();
+        int ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
+        if(ellapsed >= TIMEOUT)
+        {
+            return ;
+        }
         double sum, avg, sd;
         sum = 0.0;
         for(int i = 0; i < numSol; ++i)
@@ -468,7 +474,7 @@ struct Evolutionary
         curIt = best;
         std::uniform_real_distribution<double> distrib(0.0, 1.0);
         double rngVal;
-        int ellapsed, rdInt;
+        int rdInt;
         while(iter < 20000 && lastImprove < 2000)
         {
             lastImprove++;
@@ -618,8 +624,15 @@ struct Evolutionary
     {
         vector<Edge> cpy = edges;
         int numForests;
+        int ellapsed;
         for(int i = 0; i < numSol; ++i)
         {
+            c = chrono::steady_clock::now();
+            ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
+            if(ellapsed >= TIMEOUT)
+            {
+                break;
+            }
             shuffle(begin(cpy), end(cpy), default_random_engine(seed));
             UnionFind uf(n);
             numForests = n;
@@ -674,7 +687,7 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(int seedid = 0; seedid < 10; ++seedid)
+    for(int seedid = 0; seedid < 5; ++seedid)
     {
         seed = seedVector[seedid];
         printf("seed = %u\n", seed);

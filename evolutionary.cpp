@@ -1897,27 +1897,27 @@ int main(int argc, char* argv[])
     }
     ofstream log("log.txt", ios::app);
     log << fixed << setprecision(10);
-    for(mode = 3; mode >= 0; mode--)
+    for(mode = 0; mode <= 3; mode++)
     {
         if(mode == 0)
         {
             printf("Random Mode Selected\n");
-            log << "RANDOM\n";
+            //log << "RANDOM\n";
         }
         else if(mode == 1)
         {
             printf("MST Mode Selected\n");
-            log << "MST\n";
+            //log << "MST\n";
         }
         else if(mode == 2)
         {
             printf("Minimum Path Mode Selected\n");
-            log << "Minimum Path\n";
+            //log << "Minimum Path\n";
         }
         else
         {
             printf("PTAS Mode Selected\n");
-            log << "PTAS\n";
+            //log << "PTAS\n";
             for(int k = 3; k <= 5; k++)
             {
                 list<vector<int>> lst;

@@ -7,7 +7,7 @@ using namespace std;
 #define vi vector<int>
 #define ii pair<int, int>
 #define EPS 1e-3
-#define TIMEOUT 1200
+#define TIMEOUT 2400
 
 struct Edge 
 {

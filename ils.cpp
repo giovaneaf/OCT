@@ -113,13 +113,11 @@ struct Solution
     //vb usedEdge;
     set<int> usedEdges;
     double objective;
-    double h;
     
     Solution()
     {
         adj.resize(n, vector<AdjInfo>());
         objective = 0;
-        h = 0;
     }
     
     void clear()
@@ -164,13 +162,6 @@ struct Solution
                 objective += dist[node][v]*req[node][v];
             }
         }
-        h = objective;
-        double acc = 0.0;
-        for(auto it = usedEdges.begin(); it != usedEdges.end(); ++it)
-        {
-            acc += penalty[*it]*edges[*it].len;
-        }
-        h += lambda*acc;
     }
    
     void fillDist()
@@ -424,7 +415,7 @@ struct Solution
             // Find the best edge to add when removing the chosen edge
             double minObj, curObj;
             int addEdge;
-            minObj = curObj = this->h;
+            minObj = curObj = this->objective;
             addEdge = rdInt;
             vector<int> possibleEdges;
             for(int i = 0; i < m; ++i)
@@ -451,9 +442,9 @@ struct Solution
                     printf("Objective = %.10f\n", best.objective);
                     notImproving = 0;
                 }
-                if(tmp.h < minObj)
+                if(tmp.objective < minObj)
                 {
-                    minObj = tmp.h;
+                    minObj = tmp.objective;
                     addEdge = i;
                 }
                 if(cnt >= 100)
@@ -583,7 +574,6 @@ void localSearch(Solution& best)
         }
         bestIt = imp;
     } while(notImproving < 25);
-    printf("done\n");
 }
 
 
@@ -593,7 +583,6 @@ Solution GLS(Solution& start)
     ft1 = 0.0;
     lambda = 0.0;
     Solution best, bestIt, imp, tmp, newSol;
-    newSol = start;
     best = start;
     int ellapsed;
     printf("Objective = %.10f\n", best.objective);
@@ -612,7 +601,7 @@ Solution GLS(Solution& start)
         }
         tmp = bestIt;
         tmp.mutateRemoving(best, notImproving);
-        if(lt(tmp.h, imp.h))
+        if(lt(tmp.objective, imp.objective))
         {
             notImproving = 0;
             imp = tmp;
@@ -653,8 +642,7 @@ Solution GLS(Solution& start)
             }
         }
         notImproving = 0;
-        bestIt = start;
-        double bestObj = bestIt.objective;
+        double bestObj = best.objective;
         do
         {
             notImproving++;
@@ -667,7 +655,7 @@ Solution GLS(Solution& start)
             }
             tmp = bestIt;
             tmp.mutateRemoving(best, notImproving);
-            if(lt(tmp.h, imp.h))
+            if(lt(tmp.objective, imp.objective))
             {  
                 notImproving = 0;
                 imp = tmp;
@@ -685,7 +673,7 @@ Solution GLS(Solution& start)
             bestImprovement = 0;
         }
 
-    } while (bestImprovement >= 50);
+    } while (bestImprovement >= 25);
     
     return best;
 }
@@ -711,70 +699,7 @@ struct Evolutionary
 
     Solution run()
     {
-        genMinPathPop();
-        for(Solution& sol : solutions)
-        {
-            assert(lt(0, sol.objective) && lt(sol.objective, DBL_MAX));
-        }
-        int gen = 1;
-        double maxObj, minObj;
-        Solution best;
-        best.objective = DBL_MAX;
-        int ellapsed;
-        double curBestVal = DBL_MAX;
-        Solution* tmpBest;
-        int notImproving = 0;
-        while(gen <= numGen && notImproving < 25)
-        {
-            c = chrono::steady_clock::now();
-            ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
-            if(ellapsed >= TIMEOUT/2.0)
-            {
-                break;
-            }
-            printf("Generation = %d\n", gen);
-            minObj = DBL_MAX;
-            maxObj = 0;
-            // find best solution
-            tmpBest = &best;
-            for(Solution& sol : solutions)
-            {
-                minObj = min(minObj, sol.objective);
-                maxObj = max(maxObj, sol.objective);
-                if(sol.objective < tmpBest->objective)      // update if solution is better
-                {
-                    tmpBest = &sol;
-                }
-            }
-            best = *tmpBest;
-            // Crossover between parents
-            int id1, id2;
-            for(int i = 0; i < numCrossover; ++i)
-            {
-                id1 = rand()%(popSize);
-                id2 = rand()%(popSize);
-                offspring[i] = crossover(solutions[id1], solutions[id2]);
-            }
-            int idx = numCrossover;
-            for(int i = 0; i < popSize; ++i)
-            {
-                offspring[idx++] = solutions[i];
-            }
-            tournamentSelection(offspring);
-            if(lt(best.objective, curBestVal))
-            {
-                curBestVal = best.objective;
-                notImproving = 0;
-            }
-            else
-            {
-                notImproving++;
-            }
-            gen++;
-            printf("Best so far = %.10f\n", best.objective);
-        }
-        SimulatedAnnealing(best);
-        return best;
+        return GRASP();
     }
 
     void SimulatedAnnealing(Solution& best)
@@ -839,6 +764,32 @@ struct Evolutionary
             }
             T *= 0.99;
         }
+    }
+
+    Solution GRASP()
+    {
+        int popSize = 100;
+        vector<Solution> solutions;
+        solutions.resize(popSize);
+        genMinPathPop(popSize, solutions);
+        Solution best;
+        best.objective = DBL_MAX;
+        int ellapsed;
+        for(Solution& s : solutions)
+        {
+            c = chrono::steady_clock::now();
+            ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
+            if(ellapsed >= TIMEOUT)
+            {
+                break;
+            }
+            localSearch(s);
+            if(lt(s.objective, best.objective))
+            {
+                best = s;
+            }
+        }
+        return best;
     }
 
     Solution crossover(Solution& s1, Solution& s2)
@@ -909,6 +860,153 @@ struct Evolutionary
     /* Generate popSize initial solutions with minimal path trees of
        random vertices using Dijkstra */
     void genMinPathPop()
+    {
+        printf("MinPathPop\n");
+        // generate adjacency list to perform Dijkstra
+        vector<AdjInfo> adj[n];
+        for(Edge& e : edges)
+        {
+            adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+        }
+        int i, rdInt, cur;
+        int reservoirSz = min(popSize, n);
+        vector<int> reservoir(popSize);
+        // Reservoir Algorithm to sample reservoirSz random solutions
+        for(i = 0; i < reservoirSz; ++i)
+            reservoir[i] = i;
+        for(; i < n; ++i)
+        {
+            rdInt = rand()%(i+1);
+            if(rdInt < reservoirSz)
+            {
+                reservoir[rdInt] = i;
+            }
+        }
+        // Generate Min Path Tree solution
+        for(i = 0; i < reservoirSz; ++i)
+        {
+            // perform Dijkstra in the node (reservoir[i])
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            cur = reservoir[i];
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            double w;
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                w = pq.top().first;
+                pq.pop();
+                if(lt(dist[cur], w))
+                    continue;
+                for(AdjInfo& ainfo : adj[cur])
+                {
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
+                }
+            }
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            int cnt = 0;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    //sol.usedEdge[edgeID] = true;
+                    sol.usedEdges.insert(edgeID);
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    cnt++;
+                }
+            }
+            assert(cnt == n-1);
+            sol.computeObjectiveFun();
+            solutions[i] = sol;
+        }
+
+        // Generate Min Path Tree solution with some edges removed with some probability
+        for(i = reservoirSz; i < popSize; ++i)
+        {
+            // invalid edges
+            vector<bool> tabu(m, false);
+            cur = rand()%n;
+            for(int j = 0; j < m; ++j)
+            {
+                if(solutions[cur].hasEdge(j))
+                {
+                    if((rand()%10) == 0)    // 10% of chance to remove an used edge from the sol
+                        tabu[j] = true;
+                }
+            }
+            // perform Dijkstra in the node (cur)
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            double w;
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                w = pq.top().first;
+                pq.pop();
+                if(lt(dist[cur], w))
+                    continue;
+                for(AdjInfo& ainfo : adj[cur])
+                {
+                    if(tabu[ainfo.id])
+                        continue;
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
+                }
+            }
+            bool connected = true;
+            for(int j = 0; j < n; ++j)
+            {
+                if(lt(dist[j], DBL_MAX))       // node reacheable
+                    continue;
+                connected = false;
+                break;
+            }
+            if(!connected)                     // try again!
+            {
+                i--;
+                continue;
+            }
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            int cnt = 0;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    sol.usedEdges.insert(edgeID);
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    cnt++;
+                }
+            }
+            assert(cnt == n-1);
+            sol.computeObjectiveFun();
+            solutions[i] = sol;
+        }  
+    }
+
+    void genMinPathPop(int popSize, vector<Solution>& solutions)
     {
         printf("MinPathPop\n");
         // generate adjacency list to perform Dijkstra

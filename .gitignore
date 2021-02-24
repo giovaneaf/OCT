@@ -4,6 +4,7 @@ heuristic
 gls
 glsv2
 simpleEvo
+newSA
 
 #settings.json
 .vscode/settings.json
