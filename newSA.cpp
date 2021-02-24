@@ -193,130 +193,6 @@ struct Solution
         return usedEdges.find(idx) != usedEdges.end();
     }
 
-    // Mutate when inserting a new edge in the solution - O(n^2)
-    void mutateInserting()
-    {
-        this->fillDist();
-        // Selecting edge to insert
-        vi possibleEdges(m-(n-1));
-        int idx = 0;
-        for(int i = 0; i < m; ++i)
-        {
-            if(!hasEdge(i))
-            {
-                possibleEdges[idx++] = i;
-            }
-        }
-        int rdInt = possibleEdges[rand()%((int) possibleEdges.size())];
-        Edge edge = edges[rdInt];
-        // Find cycle in graph with BFS (path from one endpoint to the other)
-        vi dad(n, -1);
-        vi eIdx(n, -1);
-        queue<int> q;
-        q.push(edge.u);
-        int cur;
-        while(q.size())
-        {
-            cur = q.front();
-            q.pop();
-            for(AdjInfo& ainfo: this->adj[cur])
-            {
-                if(dad[ainfo.v] == -1)
-                {
-                    dad[ainfo.v] = cur;
-                    eIdx[ainfo.v] = ainfo.id;
-                    q.push(ainfo.v);
-                }
-                if(ainfo.v == edge.v)   // path found
-                    break;
-            }
-        }
-        while(q.size()) // Empty queue for later usage
-            q.pop();
-        // insert chosen edge in tree
-        usedEdges.insert(rdInt);
-        this->adj[edge.u].push_back(AdjInfo(edge.v, edge.len, edge.id));
-        this->adj[edge.v].push_back(AdjInfo(edge.u, edge.len, edge.id));
-        cur = edge.v;
-        int e1, e2, rmEdge, curNode;
-        double minObj, curObj;
-        e1 = e2 = rmEdge = edge.id;         // e2 represents the removed edge
-        minObj = curObj = this->objective;
-        // traverse all edges in cycle
-        while(cur != edge.u)
-        {
-            e1 = e2;
-            e2 = eIdx[cur];
-            vb updated(n, false);
-            q.push(cur);
-            // find all nodes that distances are outdated
-            while(q.size())
-            {
-                curNode = q.front();
-                updated[curNode] = true;
-                q.pop();
-                for(AdjInfo& ainfo: this->adj[curNode])
-                {
-                    if(updated[ainfo.v] || ainfo.id == e1 || ainfo.id == e2)
-                        continue;
-                    q.push(ainfo.v);
-                    updated[ainfo.v] = true;
-                }
-            }
-            // update the distances of the values doing BFS and updating the objective function
-            Edge newEdge = edges[e1];
-            int neighbor = getNeighbor(cur, newEdge);
-            curNode = cur;
-            list<int> nodesToUpdate;
-            for(int i = 0; i < n; ++i)
-            {
-                if(!updated[i])
-                {
-                    curObj -= dist[curNode][i]*req[curNode][i];
-                    dist[curNode][i] = dist[i][curNode] = newEdge.len + dist[neighbor][i];
-                    curObj += dist[curNode][i]*req[curNode][i];
-                    nodesToUpdate.push_back(i);
-                }
-            }
-            vb seen(n, false);
-            q.push(curNode);
-            // update remaining nodes
-            while(q.size())
-            {
-                curNode = q.front();
-                seen[curNode] = true;
-                q.pop();
-                for(AdjInfo& ainfo: this->adj[curNode])
-                {
-                    if(seen[ainfo.v] || ainfo.id == e1 || ainfo.id == e2)
-                        continue;
-                    q.push(ainfo.v);
-                    seen[ainfo.v] = true;
-                    for(int& i : nodesToUpdate)
-                    {
-                        curObj -= dist[ainfo.v][i]*req[ainfo.v][i];
-                        dist[ainfo.v][i] = dist[i][ainfo.v] = ainfo.len + dist[curNode][i];
-                        curObj += dist[ainfo.v][i]*req[ainfo.v][i];
-                    }
-                }
-            }
-            // after updating check if the objective function is lower than the last seen
-            if(curObj < minObj)
-            {
-                minObj = curObj;
-                rmEdge = e2;
-            }
-            cur = dad[cur];
-        }
-        // remove the edge s.t. objective function is minimum
-        edge = edges[rmEdge];
-        assert(edge.id == rmEdge);
-        this->removeEdge(edge);
-        // call this to update the new distances correctly
-        this->objective = minObj;
-        assert(eq(minObj, this->objective));
-    }
-
     // Mutate when considering to remove a random edge - O(m*n^2)
     void mutateRemoving()
     {
@@ -521,6 +397,58 @@ void print(Solution& s)
     putchar('\n');
 }
 
+void buildMinPathSolution(vector<Edge>& edge, Solution& sol)
+{
+    // generate adjacency list to perform Dijkstra
+    vector<AdjInfo> adj[n];
+    for(Edge& e : edge)
+    {
+        adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+        adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+    }
+    // perform Dijkstra in the random node (cur)
+    int cur = rand()%n;
+    vector<double> dist(n, DBL_MAX);
+    vector<int> uEdge(n, -1);
+    dist[cur] = 0.0;
+    priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+    pq.push(mp(dist[cur], cur));
+    double w;
+    while(pq.size())
+    {
+        cur = pq.top().second;
+        w = pq.top().first;
+        pq.pop();
+        if(lt(dist[cur], w))
+            continue;
+        for(AdjInfo& ainfo : adj[cur])
+        {
+            if(dist[ainfo.v] > dist[cur] + ainfo.len)
+            {
+                dist[ainfo.v] = dist[cur] + ainfo.len;
+                uEdge[ainfo.v] = ainfo.id;
+                pq.push(mp(dist[ainfo.v], ainfo.v));
+            }
+        }
+    }
+    // construct Solution for minimum path tree from node
+    Edge e;
+    int cnt = 0;
+    for(int& edgeID : uEdge)
+    {
+        if(edgeID > -1)
+        {
+            sol.usedEdges.insert(edgeID);
+            cnt++;
+            e = edges[edgeID];
+            sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+        }
+    }
+    assert(cnt == n-1);
+}
+
+
 // evolutionary/genetic algorithm
 struct Evolutionary
 {
@@ -542,7 +470,7 @@ struct Evolutionary
 
     Solution run()
     {
-        genRandomPop();
+        genMinPathPop();
         for(Solution& sol : solutions)
         {
             assert(lt(0, sol.objective) && lt(sol.objective, DBL_MAX));
@@ -704,36 +632,8 @@ struct Evolutionary
         }
         else
         {
-            UnionFind uf(n);
-            Edge* e;
-            vector<pair<double, int>> KruskalRST;
-            for(int i = 0; i < (int) fixedEdge.size(); ++i)
-            {
-                e = &avEdges[i];
-                if(fixedEdge[i])
-                {
-                    uf.unionSet(e->u, e->v);
-                    sol.usedEdges.insert(e->id);
-                    sol.adj[e->u].push_back(AdjInfo(e->v, e->len, e->id));
-                    sol.adj[e->v].push_back(AdjInfo(e->u, e->len, e->id));
-                }
-                else
-                {
-                    KruskalRST.push_back(mp(e->len, e->id));
-                }
-            }
-            sort(KruskalRST.begin(), KruskalRST.end());
-            for(pair<double, int> pp : KruskalRST)
-            {
-                e = &edges[pp.second];
-                if(!uf.isSameSet(e->u, e->v))
-                {
-                    uf.unionSet(e->u, e->v);
-                    sol.usedEdges.insert(e->id);
-                    sol.adj[e->u].push_back(AdjInfo(e->v, e->len, e->id));
-                    sol.adj[e->v].push_back(AdjInfo(e->u, e->len, e->id));
-                }
-            }
+            // Calling a greedy shortest path tree from a random node
+            buildMinPathSolution(avEdges, sol);
             sol.computeObjectiveFun();
         }
         return sol;
@@ -765,38 +665,153 @@ struct Evolutionary
         }
     }
 
-    /* Generate popSize initial solutions (trees) by shuffling the edges
-	   and inserting the edges like Kruskal Algorithm */
-    void genRandomPop()
+    /* Generate popSize initial solutions with minimal path trees of
+       random vertices using Dijkstra */
+    void genMinPathPop()
     {
-        printf("RandomPop\n");
-        vector<Edge> cpy = edges;
-        int numForests;
-        for(int i = 0; i < popSize; ++i)
+        printf("MinPathPop\n");
+        // generate adjacency list to perform Dijkstra
+        vector<AdjInfo> adj[n];
+        for(Edge& e : edges)
         {
-            shuffle(begin(cpy), end(cpy), default_random_engine(seed));
-            UnionFind uf(n);
-            numForests = n;
-            Solution sol;
-            for(Edge& e: cpy)
+            adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+            adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+        }
+        int i, rdInt, cur;
+        int reservoirSz = min(popSize, n);
+        vector<int> reservoir(popSize);
+        // Reservoir Algorithm to sample reservoirSz random solutions
+        for(i = 0; i < reservoirSz; ++i)
+            reservoir[i] = i;
+        for(; i < n; ++i)
+        {
+            rdInt = rand()%(i+1);
+            if(rdInt < reservoirSz)
             {
-                if(!uf.isSameSet(e.u, e.v))
+                reservoir[rdInt] = i;
+            }
+        }
+        // Generate Min Path Tree solution
+        for(i = 0; i < reservoirSz; ++i)
+        {
+            // perform Dijkstra in the node (reservoir[i])
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            cur = reservoir[i];
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            double w;
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                w = pq.top().first;
+                pq.pop();
+                if(lt(dist[cur], w))
+                    continue;
+                for(AdjInfo& ainfo : adj[cur])
                 {
-                    uf.unionSet(e.u, e.v);
-                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
-                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
-                    sol.usedEdges.insert(e.id);
-                    numForests--;
-                }
-                if(numForests == 1) // If the tree is done
-                {
-                    break;
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
                 }
             }
-            assert(numForests == 1);
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            int cnt = 0;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    //sol.usedEdge[edgeID] = true;
+                    sol.usedEdges.insert(edgeID);
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    cnt++;
+                }
+            }
+            assert(cnt == n-1);
             sol.computeObjectiveFun();
             solutions[i] = sol;
         }
+
+        // Generate Min Path Tree solution with some edges removed with some probability
+        for(i = reservoirSz; i < popSize; ++i)
+        {
+            // invalid edges
+            vector<bool> tabu(m, false);
+            cur = rand()%n;
+            for(int j = 0; j < m; ++j)
+            {
+                if(solutions[cur].hasEdge(j))
+                {
+                    if((rand()%10) == 0)    // 10% of chance to remove an used edge from the sol
+                        tabu[j] = true;
+                }
+            }
+            // perform Dijkstra in the node (cur)
+            vector<double> dist(n, DBL_MAX);
+            vector<int> uEdge(n, -1);
+            dist[cur] = 0.0;
+            priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> pq;
+            pq.push(mp(dist[cur], cur));
+            double w;
+            while(pq.size())
+            {
+                cur = pq.top().second;
+                w = pq.top().first;
+                pq.pop();
+                if(lt(dist[cur], w))
+                    continue;
+                for(AdjInfo& ainfo : adj[cur])
+                {
+                    if(tabu[ainfo.id])
+                        continue;
+                    if(dist[ainfo.v] > dist[cur] + ainfo.len)
+                    {
+                        dist[ainfo.v] = dist[cur] + ainfo.len;
+                        uEdge[ainfo.v] = ainfo.id;
+                        pq.push(mp(dist[ainfo.v], ainfo.v));
+                    }
+                }
+            }
+            bool connected = true;
+            for(int j = 0; j < n; ++j)
+            {
+                if(lt(dist[j], DBL_MAX))       // node reacheable
+                    continue;
+                connected = false;
+                break;
+            }
+            if(!connected)                     // try again!
+            {
+                i--;
+                continue;
+            }
+            // construct Solution for minimum path tree from node
+            Solution sol;
+            Edge e;
+            int cnt = 0;
+            for(int& edgeID : uEdge)
+            {
+                if(edgeID > -1)
+                {
+                    sol.usedEdges.insert(edgeID);
+                    e = edges[edgeID];
+                    sol.adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
+                    sol.adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
+                    cnt++;
+                }
+            }
+            assert(cnt == n-1);
+            sol.computeObjectiveFun();
+            solutions[i] = sol;
+        }  
     }
 
     void genRandom(vector<Solution>& iniSol, int numSol)
