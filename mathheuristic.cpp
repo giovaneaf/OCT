@@ -270,7 +270,6 @@ void findInitialSolution(Solution& best)
         }
         assert(cnt == n-1);
         sol.computeObjectiveFun();
-        printf("Obj = %.10f\n", sol.objective);
         if(lt(sol.objective, best.objective))
         {
             best = sol;
@@ -293,7 +292,7 @@ int computeSubtree(int cur, vi& subtreeSize, vi& dad, Solution& best)
     return subtreeSize[cur];
 }
 
-void DFS(int cur, int invalid, Group& gp, Solution& best)
+void DFS(int cur, int invalid, Group& gp, Solution& best, vi& subtreeSize)
 {
     seen[cur] = true;
     gp.node.push_back(Info(cur, true));
@@ -301,7 +300,8 @@ void DFS(int cur, int invalid, Group& gp, Solution& best)
     {
         if(ainfo.v == invalid || seen[ainfo.v]) 
             continue;
-        DFS(ainfo.v, invalid, gp, best);
+        subtreeSize[ainfo.v] = 0;
+        DFS(ainfo.v, invalid, gp, best, subtreeSize);
     }
 }
 
@@ -318,14 +318,14 @@ void divideGroups(Solution& best)
             q.push(i);
     }
     int cur, tmpPar;
-    do
+    while(q.size())
     {
         while(q.size())
         {
             cur = q.front();
             q.pop();
             Group gp;
-            DFS(cur, dad[cur], gp, best);
+            DFS(cur, dad[cur], gp, best, subtreeSize);
             group.push_back(gp);
             tmpPar = dad[cur];
             while(tmpPar != -1)
@@ -333,22 +333,153 @@ void divideGroups(Solution& best)
                 subtreeSize[tmpPar] -= subtreeSize[cur];
                 tmpPar = dad[tmpPar];
             }
+            subtreeSize[cur] = 0;
         }
         for(int i = 0; i < n; ++i)
         {
             if(!seen[i] && subtreeSize[i] == K)
                 q.push(i);
         }
-    } while(q.size());
-    for(Group& gp : group)
-    {
-        printf("group size = %d\n", (int) gp.node.size());
     }
+    set<ii> order;
     for(int i = 0; i < n; ++i)
     {
         if(!seen[i])
-            printf("subtree size = %d\n", subtreeSize[i]);
+        {
+            if(subtreeSize[i] >= K)
+            {
+                order.insert({subtreeSize[i], i});
+            }
+        }
     }
+    while(order.size())
+    {
+        cur = order.begin()->second;
+        order.erase(order.begin());
+        if(seen[cur])
+            continue;
+        vector<ii> subtrees;
+        for(AdjInfo& ainfo : best.adj[cur])
+        {
+            if(subtreeSize[ainfo.v] == 0 || subtreeSize[ainfo.v] > subtreeSize[cur])
+                continue;
+            subtrees.push_back({subtreeSize[ainfo.v], ainfo.v});
+            assert(subtreeSize[ainfo.v] < K);
+        }
+        sort(subtrees.begin(), subtrees.end());
+        if((int) subtrees.size() == 1 || subtreeSize[cur] == K)
+        {
+            assert(subtreeSize[cur] == K);
+            Group gp;
+            DFS(cur, dad[cur], gp, best, subtreeSize);
+            group.push_back(gp);
+            tmpPar = cur;
+            while(tmpPar != -1)
+            {
+                auto it = order.find({subtreeSize[tmpPar], tmpPar});
+                subtreeSize[tmpPar] -= K;
+                if(it != order.end())
+                {
+                    order.erase(it);
+                    if(subtreeSize[tmpPar] >= K)
+                    {
+                        order.insert({subtreeSize[tmpPar], tmpPar});
+                    }
+                }
+                tmpPar = dad[tmpPar];
+            }
+            continue;
+        }
+        assert((int) subtrees.size() > 1 && subtreeSize[cur] > K);
+        int pos, ipos, numNodes, rmNodes;
+        pos = 0;
+        rmNodes = 0;
+        while(subtreeSize[cur] - rmNodes > K)
+        {
+            ipos = pos;
+            numNodes = subtrees[ipos].first + 1;
+            pos++;
+            while(pos < (int) subtrees.size() && numNodes + subtrees[pos].first <= K)
+            {
+                numNodes += subtrees[pos].first;
+                pos++;
+            }
+            if(pos-ipos == 1)
+            {
+                break;
+            }
+            rmNodes += numNodes-1;
+            Group gp;
+            for(int i = ipos; i < pos; ++i)
+            {
+                DFS(subtrees[i].second, dad[subtrees[i].second], gp, best, subtreeSize);
+            }
+            gp.node.push_back(Info(dad[subtrees[ipos].second], false));
+            group.push_back(gp);
+        }
+        int revPos = (int) subtrees.size()-1;
+        while(revPos >= pos && subtreeSize[cur] - rmNodes > K)
+        {
+            rmNodes += subtrees[revPos].first;
+            Group gp;
+            DFS(subtrees[revPos].second, dad[subtrees[revPos].second], gp, best, subtreeSize);
+            group.push_back(gp);
+            revPos--;
+        }
+        if(subtreeSize[cur] - rmNodes == K)
+        {
+            rmNodes = subtreeSize[cur];
+            Group gp;
+            DFS(cur, dad[cur], gp, best, subtreeSize);
+            group.push_back(gp);
+        }
+        tmpPar = cur;
+        while(tmpPar != -1)
+        {
+            auto it = order.find({subtreeSize[tmpPar], tmpPar});
+            subtreeSize[tmpPar] -= rmNodes;
+            if(it != order.end())
+            {
+                order.erase(it);
+                if(subtreeSize[tmpPar] >= K)
+                {
+                    order.insert({subtreeSize[tmpPar], tmpPar});
+                }
+            }
+            tmpPar = dad[tmpPar];
+        }
+        for(int i = 0; i < n; ++i)
+        {
+            if(!seen[i])
+            {
+                if(subtreeSize[i] >= K)
+                {
+                    order.insert({subtreeSize[i], i});
+                }
+            }
+        }
+    }
+    if(!seen[0])
+    {
+        Group gp;
+        DFS(0, -1, gp, best, subtreeSize);
+        group.push_back(gp);
+        subtreeSize[0] = 0;
+        putchar('\n');
+    }
+    int totNodes = 0;
+    for(Group& gp : group)
+    {
+        printf("group:");
+        for(Info& node : gp.node)
+        {
+            printf(" %d", node.id);
+            totNodes++;
+        }
+        putchar('\n');
+    }
+    printf("total Nodes = %d\n", totNodes);
+    printf("total Groups = %d\n", (int) group.size());
 }
 
 int main(int argc, char* argv[])
