@@ -218,6 +218,7 @@ struct Group
 };
 
 vector<Group> group;
+vector<set<int>> nodesGroup;
 
 /* Find best solution with minimal path trees using Dijkstra */
 void findInitialSolution(Solution& best)
@@ -465,21 +466,87 @@ void divideGroups(Solution& best)
         DFS(0, -1, gp, best, subtreeSize);
         group.push_back(gp);
         subtreeSize[0] = 0;
-        putchar('\n');
     }
     int totNodes = 0;
+    nodesGroup.resize(n, set<int>());
+    int cnt = 0;
     for(Group& gp : group)
     {
         printf("group:");
         for(Info& node : gp.node)
         {
             printf(" %d", node.id);
+            nodesGroup[node.id].insert(cnt);
             totNodes++;
         }
         putchar('\n');
+        cnt++;
     }
     printf("total Nodes = %d\n", totNodes);
     printf("total Groups = %d\n", (int) group.size());
+    /*for(int i = 0; i < n; ++i)
+    {
+        printf("Num Groups node %d is %d\n", i, (int) nodesGroup[i].size());
+    }*/
+}
+
+void findBest(int g1, int g2, Solution& best, bool& improve)
+{
+    set<int> usedNodes;
+    for(Info& info : group[g1].node)
+    {
+        usedNodes.insert(info.id);
+    }
+    for(Info& info : group[g2].node)
+    {
+        usedNodes.insert(info.id);
+    }
+    set<int> rmEdges;
+    for(auto it = best.usedEdges.begin(); it != best.usedEdges.end(); ++it)
+    {
+        if(usedNodes.find(edges[*it].u) != usedNodes.end() && usedNodes.find(edges[*it].v) != usedNodes.end())
+            rmEdges.insert(*it);
+    }
+    vector<vector<double>> newReq((int) usedNodes.size(), vector<double>((int) usedNodes.size(), 0));
+    int cur;
+    for(auto it = usedNodes.begin(); it != usedNodes.end(); ++it)
+    {
+        cur = *it;
+        
+    }
+    /*if(changed(best))
+        improve = true;*/
+}
+
+void improveSolution(Solution& best)
+{
+    bool improve;
+    int u, v;
+    do
+    {
+        improve = false;
+        // For each edge in the solution
+        for(auto it = best.usedEdges.begin(); it != best.usedEdges.end(); ++it)
+        {
+            u = edges[*it].u;
+            v = edges[*it].v;
+            for(auto gu = nodesGroup[u].begin(); gu != nodesGroup[u].begin(); ++gu)
+            {
+                for(auto gv = nodesGroup[v].begin(); gv != nodesGroup[v].begin(); ++gv)
+                {
+                    if(*gu == *gv)
+                        continue;
+                    findBest(*gu, *gv, best, improve);
+                    if(improve)
+                        break;
+                }
+                if(improve)
+                    break;
+            }
+            if(improve)
+                break;
+        }
+    } while(improve);
 }
 
 int main(int argc, char* argv[])
@@ -516,5 +583,6 @@ int main(int argc, char* argv[])
     Solution best;
     findInitialSolution(best);
     divideGroups(best);
+    improveSolution(best);
     return 0;
 }
