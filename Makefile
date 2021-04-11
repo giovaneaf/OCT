@@ -16,5 +16,11 @@ gls: gls.cpp
 simpleEvo: simpleEvo.cpp
 	g++ $(FLAGS) simpleEvo.cpp -o simpleEvo
 
+math: mathformulations.cpp
+	g++ $(FLAGS) mathformulations.cpp -o math $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
+
+mipgrb: mipgrb.cpp
+	g++ $(FLAGS) mipgrb.cpp -o mipgrb $(INCLUDE) $(LIBRARY) -lgurobi_c++ -lgurobi91
+
 clean:
 	rm evolutionary heuristic gls simpleEvo

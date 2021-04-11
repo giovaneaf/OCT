@@ -7,7 +7,7 @@ using namespace std;
 #define vi vector<int>
 #define ii pair<int, int>
 #define EPS 1e-3
-#define TIMEOUT 2400
+#define TIMEOUT 300
 
 struct Edge 
 {
@@ -385,6 +385,7 @@ Solution GLS()
     notImproving = 0;
     do
     {
+        notImproving++;
         imp = bestIt;
         c = chrono::steady_clock::now();
         ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
@@ -396,7 +397,6 @@ Solution GLS()
         tmp.mutateRemoving(best, notImproving);
         if(lt(tmp.h, imp.h))
         {
-            notImproving = 0;
             imp = tmp;
         }
         if(lt(tmp.objective, best.objective))
@@ -449,8 +449,7 @@ Solution GLS()
             tmp = bestIt;
             tmp.mutateRemoving(best, notImproving);
             if(lt(tmp.h, imp.h))
-            {  
-                notImproving = 0;
+            {
                 imp = tmp;
             }
             if(lt(tmp.objective, best.objective))

@@ -7,7 +7,7 @@ using namespace std;
 #define vi vector<int>
 #define ii pair<int, int>
 #define EPS 1e-3
-#define TIMEOUT 1200
+#define TIMEOUT 300
 
 int mode;
 
@@ -470,6 +470,52 @@ struct Solution
         }
     }
 
+    void perturbate()
+    {
+        vector<int> uEdges(n-1);
+        int cnt = 0;
+        for(auto it = usedEdges.begin(); it != usedEdges.end(); ++it)
+        {
+            uEdges[cnt++] = *it;
+        }
+        shuffle(uEdges.begin(), uEdges.end(), default_random_engine(seed));
+        Solution tmp;
+        Edge* e;
+        UnionFind uf(n);
+        for(int i = 0; i < (n-1)/2; ++i)
+        {
+            e = &edges[uEdges[i]];
+            tmp.usedEdges.insert(e->id);
+            tmp.adj[e->u].push_back(AdjInfo(e->v, e->len, e->id));
+            tmp.adj[e->v].push_back(AdjInfo(e->u, e->len, e->id));
+            uf.unionSet(e->u, e->v);
+        }
+        vector<pair<double, int>> KruskalRST;
+        for(int i = 0; i < m; ++i)
+        {
+            if(tmp.usedEdges.find(i) == tmp.usedEdges.end())
+            {
+                KruskalRST.push_back(mp(edges[i].len, edges[i].id));
+            }
+        }
+        sort(KruskalRST.begin(), KruskalRST.end());
+        for(pair<double, int> pp : KruskalRST)
+        {
+            e = &edges[pp.second];
+            if(!uf.isSameSet(e->u, e->v))
+            {
+                uf.unionSet(e->u, e->v);
+                tmp.usedEdges.insert(e->id);
+                tmp.adj[e->u].push_back(AdjInfo(e->v, e->len, e->id));
+                tmp.adj[e->v].push_back(AdjInfo(e->u, e->len, e->id));
+                if((int) tmp.usedEdges.size() == n-1)
+                    break;
+            }
+        }
+        tmp.computeObjectiveFun();
+        *this = tmp;
+    }
+
 };
 
 
@@ -795,50 +841,64 @@ struct Evolutionary
             sd += (iniSol[i].objective-avg)*(iniSol[i].objective-avg);
         }
         sd = sqrt((double) sd/numSol);
-        double T = 2*sd;
-        int iter, lastImprove;
-        iter = lastImprove = 0;
+        int notImproving = 0;
         Solution tmp, curIt;
         curIt = best;
-        std::uniform_real_distribution<double> distrib(0.0, 1.0);
-        double rngVal;
-        int ellapsed;
-        while(iter < 200000 && lastImprove < 10000)
+        do
         {
-            lastImprove++;
-            iter++;
+            notImproving++;
+            double T = 2*sd;
+            int iter, lastImprove;
+            iter = lastImprove = 0;
+
+            std::uniform_real_distribution<double> distrib(0.0, 1.0);
+            double rngVal;
+            int ellapsed;
+            while(iter < 200000 && lastImprove < 10000)
+            {
+                lastImprove++;
+                iter++;
+                c = chrono::steady_clock::now();
+                ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
+                if(ellapsed >= TIMEOUT)
+                {
+                    break;
+                }
+                tmp = curIt;
+                tmp.mutateRemoving();
+                if(lt(tmp.objective, best.objective))
+                {
+                    lastImprove = 0;
+                    notImproving = 0;
+                    best = tmp;
+                    printf("Obj = %.10f\n", best.objective);
+                }
+                if(lt(tmp.objective, curIt.objective))
+                {
+                    curIt = tmp;
+                }
+                else
+                {
+                    double prob = exp((curIt.objective-tmp.objective)/(T+EPS));
+                    prob = min(prob, 1.0);
+                    prob = max(prob, 0.0);
+                    assert(leq(0.0, prob) && leq(prob, 1.0));
+                    rngVal = distrib(rng);
+                    if(lt(rngVal, prob))
+                    {
+                        curIt = tmp;
+                    }
+                }
+                T *= 0.99;
+            }
             c = chrono::steady_clock::now();
             ellapsed = std::chrono::duration_cast<std::chrono::seconds>(c - a).count();
             if(ellapsed >= TIMEOUT)
             {
                 break;
             }
-            tmp = curIt;
-            tmp.mutateRemoving();
-            if(lt(tmp.objective, best.objective))
-            {
-                lastImprove = 0;
-                best = tmp;
-                printf("Obj = %.10f\n", best.objective);
-            }
-            if(lt(tmp.objective, curIt.objective))
-            {
-                curIt = tmp;
-            }
-            else
-            {
-                double prob = exp((curIt.objective-tmp.objective)/(T+EPS));
-                prob = min(prob, 1.0);
-                prob = max(prob, 0.0);
-                assert(leq(0.0, prob) && leq(prob, 1.0));
-                rngVal = distrib(rng);
-                if(lt(rngVal, prob))
-                {
-                    curIt = tmp;
-                }
-            }
-            T *= 0.99;
-        }
+            curIt.perturbate();
+        } while(notImproving < 10);
     }
 
     Solution crossover(Solution& s1, Solution& s2)

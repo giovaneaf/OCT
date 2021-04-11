@@ -1063,7 +1063,7 @@ struct Evolutionary
             adj[e.u].push_back(AdjInfo(e.v, e.len, e.id));
             adj[e.v].push_back(AdjInfo(e.u, e.len, e.id));
         }
-        int i, rdInt, cur;
+        int cur;
         vector<double> dist(n, DBL_MAX);
         vector<int> uEdge(n, -1);
         cur = rand()%n;
