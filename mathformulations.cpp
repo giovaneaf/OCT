@@ -61,7 +61,7 @@ void newFormulation()
     try 
     {
         env.set("OutputFlag", "1");
-        env.set("TimeLimit", "1800");
+        env.set("TimeLimit", "7200");
         env.start();
 
         // Create an empty model
@@ -264,7 +264,7 @@ void flowFormulation()
     try 
     {
         env.set("OutputFlag", "1");
-        env.set("TimeLimit", "1800");
+        env.set("TimeLimit", "7200");
         env.start();
         O.resize(n, 0.0);
         for(int u = 0; u < n; ++u)
@@ -370,7 +370,7 @@ void rootedFormulation()
     cin >> n >> m;
     vector<Edge> avEdges(m);
     double bigM = 0.0;
-    vector<vector<double>> cost(n, vector<double>(n, 1000000000));
+    vector<vector<double>> cost(n, vector<double>(n, -1.0));
     for(int i = 0; i < m; i++)
     {
         cin >> avEdges[i].u >> avEdges[i].v >> avEdges[i].len;
@@ -414,7 +414,7 @@ void rootedFormulation()
     try 
     {
         env.set("OutputFlag", "1");
-        env.set("TimeLimit", "1800");
+        env.set("TimeLimit", "7200");
         env.start();
         int cnt = 0;
         for(int u = 0; u < n; ++u)
@@ -480,8 +480,16 @@ void rootedFormulation()
                     if(k == i || k == j) continue;
                     model.addConstr(p[getIdxFlow[i][j]] + x[getIdxFlow[j][k]] <= 1 + p[getIdxFlow[i][k]]); // (e)
                     model.addConstr(p[getIdxFlow[i][k]] + x[getIdxFlow[j][k]] <= 1 + p[getIdxFlow[i][j]]); // (f)
-                    model.addConstr(d[getIdxFlow[i][j]] >= d[getIdxFlow[i][k]] + cost[k][j] - bigM*(2-x[getIdxFlow[k][j]] - p[getIdxFlow[i][k]])); // (g)
-                    model.addConstr(d[getIdxFlow[i][j]] >= d[getIdxFlow[i][k]] + cost[k][j] - bigM*(1-x[getIdxFlow[k][j]] + p[getIdxFlow[i][j]] + p[getIdxFlow[j][i]])); // (h)
+                    if(cost[k][j] >= 0.0)
+                    {
+                        model.addConstr(d[getIdxFlow[i][j]] >= d[getIdxFlow[i][k]] + cost[k][j] - bigM*(2-x[getIdxFlow[k][j]] - p[getIdxFlow[i][k]])); // (g)
+                        model.addConstr(d[getIdxFlow[i][j]] >= d[getIdxFlow[i][k]] + cost[k][j] - bigM*(1-x[getIdxFlow[k][j]] + p[getIdxFlow[i][j]] + p[getIdxFlow[j][i]])); // (h)
+                    }
+                    else
+                    {
+                        model.addConstr(x[getIdxFlow[k][j]] == 0);
+                    }
+                    
                 }
             }
         }
@@ -492,7 +500,10 @@ void rootedFormulation()
             {
                 //printf("%d %d %f\n", i, j, cost[i][j]);
                 if(i == j) continue;
-                model.addConstr(d[getIdxFlow[i][j]] >= cost[i][j]*x[getIdxFlow[i][j]]);                    // (k)
+                if(cost[i][j] >= 0.0)
+                {
+                    model.addConstr(d[getIdxFlow[i][j]] >= cost[i][j]*x[getIdxFlow[i][j]]);                    // (k)
+                }
             }
         }
         // Optimize model
